@@ -39,12 +39,18 @@ export function MonthCalendar({
   renderActions,
   reloadKey = 0,
   initialDate,
+  selectedDates,
+  onDateSelect,
+  fullBleedMobile = false,
 }: {
   today: string
   load: (from: string, to: string) => Promise<Report[]>
   renderActions?: (date: string, report: Report | null) => ReactNode
   reloadKey?: number
   initialDate?: string
+  selectedDates?: string[]
+  onDateSelect?: (date: string) => void
+  fullBleedMobile?: boolean
 }) {
   const [month, setMonth] = useState(monthOf(initialDate ?? today))
   const [selected, setSelected] = useState<string>(initialDate ?? today)
@@ -92,7 +98,12 @@ export function MonthCalendar({
 
   return (
     <Stack spacing={1.5}>
-      <Card sx={{ p: { xs: 1.5, sm: 2 } }}>
+      <Card
+        sx={{
+          p: { xs: 1.5, sm: 2 },
+          ...(fullBleedMobile && { borderRadius: { xs: 0, sm: 2 }, borderInlineWidth: { xs: 0, sm: 1 } }),
+        }}
+      >
         <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1.5 }}>
           <Tooltip title="החודש הקודם">
             <IconButton aria-label="החודש הקודם" onClick={() => go(-1)}>
@@ -135,15 +146,15 @@ export function MonthCalendar({
         {error ? (
           <ErrorState message={error} onRetry={fetchMonth} />
         ) : (
-          <Box role="grid" aria-label={`לוח דיווחים ${fmtMonth(month)}`}>
-            <Box role="row" sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 0.5, mb: 0.5 }}>
+          <Box role="grid" aria-label={`לוח דיווחים ${fmtMonth(month)}`} aria-multiselectable={!!selectedDates && !!onDateSelect}>
+            <Box role="row" sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 0.5, mb: 0.5 }}>
               {WEEKDAYS.map((w) => (
                 <Typography key={w} role="columnheader" variant="body2" sx={{ textAlign: 'center', fontWeight: 700, color: 'text.secondary' }}>
                   {w}
                 </Typography>
               ))}
             </Box>
-            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 0.5 }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 0.5 }}>
               {Array.from({ length: leading }, (_, i) => (
                 <Box key={`pad-${i}`} aria-hidden />
               ))}
@@ -152,31 +163,44 @@ export function MonthCalendar({
                 const k = kindOf(r, d, today)
                 const st = KIND_STYLE[k]
                 const isToday = d === today
-                const isSel = d === selected
+                const supportsFutureSelection = !!selectedDates && !!onDateSelect
+                const isFuture = d > today
+                const isFutureSelected = supportsFutureSelection && isFuture && selectedDates.includes(d)
+                const isSel = isFuture ? isFutureSelected : d === selected
                 const reason = r?.effective.reason
                 const label = reason ? reason.label : k === 'missing' ? 'חסר' : ''
-                const aria = `${fmtDayLong(d)}: ${reason ? `${reason.label}, ${STATE_LABEL[r!.state]}` : k === 'missing' ? 'חסר דיווח' : 'לא דווח'}`
+                const aria = `${fmtDayLong(d)}: ${reason ? `${reason.label}, ${STATE_LABEL[r!.state]}` : k === 'missing' ? 'חסר דיווח' : 'לא דווח'}${isFutureSelected ? ', נבחר לדיווח' : ''}`
                 return (
                   <ButtonBase
                     key={d}
                     role="gridcell"
                     aria-selected={isSel}
                     aria-label={aria}
-                    onClick={() => setSelected(d)}
+                    onClick={() => {
+                      setSelected(d)
+                      onDateSelect?.(d)
+                    }}
                     sx={{
                       flexDirection: 'column',
                       alignItems: 'stretch',
                       justifyContent: 'flex-start',
+                      minWidth: 0,
+                      width: '100%',
+                      overflow: 'hidden',
+                      boxSizing: 'border-box',
                       minHeight: { xs: 58, sm: 84 },
                       p: { xs: 0.5, sm: 0.75 },
                       borderRadius: 2,
-                      bgcolor: st.bg,
+                      bgcolor: isFutureSelected ? tokens.primarySoft : st.bg,
                       border: '1px solid',
                       borderStyle: r?.state === 'scheduled' ? 'dashed' : 'solid',
-                      borderColor: r?.state === 'scheduled' ? tokens.primary : st.border,
-                      outline: isSel ? `2px solid ${tokens.primary}` : isToday ? `2px solid ${tokens.primaryDark}` : 'none',
-                      outlineOffset: isSel ? 1 : 0,
-                      boxShadow: isSel ? tokens.liftShadow : 'none',
+                      borderColor: isFutureSelected || r?.state === 'scheduled' ? tokens.primary : st.border,
+                      outline: 'none',
+                      boxShadow: isSel
+                        ? `inset 0 0 0 2px ${tokens.primary}, ${tokens.liftShadow}`
+                        : isToday
+                          ? `inset 0 0 0 2px ${tokens.primaryDark}`
+                          : 'none',
                       '&.Mui-focusVisible': { outline: `3px solid ${tokens.primary}` },
                     }}
                   >
@@ -195,8 +219,15 @@ export function MonthCalendar({
                       >
                         {parseDay(d).getUTCDate()}
                       </Typography>
-                      {r?.state === 'pending_approval' && <HourglassTopIcon sx={{ fontSize: 13, color: tokens.warning }} aria-hidden />}
-                      {r?.state === 'hr_final' && <LockIcon sx={{ fontSize: 13, color: tokens.onSurfaceVariant }} aria-hidden />}
+                      {isFutureSelected ? (
+                        <Box sx={{ width: 14, height: 14, flexShrink: 0, borderRadius: '50%', bgcolor: tokens.primary, color: '#fff', display: 'grid', placeItems: 'center', fontSize: 10, fontWeight: 800 }} aria-hidden>
+                          ✓
+                        </Box>
+                      ) : r?.state === 'pending_approval' ? (
+                        <HourglassTopIcon sx={{ fontSize: 13, color: tokens.warning }} aria-hidden />
+                      ) : r?.state === 'hr_final' ? (
+                        <LockIcon sx={{ fontSize: 13, color: tokens.onSurfaceVariant }} aria-hidden />
+                      ) : null}
                     </Stack>
                     <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 0.25, mt: 0.25 }}>
                       {reason ? (
@@ -257,7 +288,10 @@ export function MonthCalendar({
         </Stack>
       </Card>
 
-      <Card sx={{ p: 2 }} aria-live="polite">
+      <Card
+        sx={{ p: 2, ...(fullBleedMobile && { borderRadius: { xs: 0, sm: 2 }, borderInlineWidth: { xs: 0, sm: 1 } }) }}
+        aria-live="polite"
+      >
         <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1} sx={{ mb: 1 }}>
           <Typography variant="h4" component="h3">
             {fmtDayLong(selected)}

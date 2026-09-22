@@ -66,7 +66,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const items: NavItem[] = useMemo(() => {
     const list: NavItem[] = [
       { to: '/', label: 'הדיווח שלי', icon: <AssignmentTurnedInIcon /> },
-      { to: '/history', label: 'היסטוריה', icon: <CalendarMonthIcon /> },
+      { to: '/history', label: 'לוח שנה', icon: <CalendarMonthIcon /> },
     ]
     if (me.capabilities.commander) list.push({ to: '/soldiers', label: 'החיילים שלי', icon: <GroupsIcon /> })
     if (me.capabilities.commander) list.push({ to: '/checkins', label: 'ירוק בעיניים', icon: <VisibilityIcon /> })
