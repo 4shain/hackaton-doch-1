@@ -20,8 +20,8 @@ gosu postgres pg_ctl -D "$PGDATA" -l "$LOGFILE" \
 
 until pg_isready -h 127.0.0.1 -p 5432 -q; do sleep 1; done
 
-gosu postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='doch1'" | grep -q 1 \
-  || gosu postgres createdb -O doch1 doch1
+gosu postgres psql -U doch1 -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='doch1'" | grep -q 1 \
+  || gosu postgres createdb -U doch1 -O doch1 doch1
 
 cd /backend
 export PATH="/backend/.venv/bin:$PATH"
@@ -34,7 +34,11 @@ python -m app.cli seed
 uvicorn app.main:app --host 127.0.0.1 --port 8000 &
 UVICORN_PID=$!
 
+mkdir -p /run/nginx
+nginx
+
 term_handler() {
+  nginx -s quit 2>/dev/null || true
   kill "$UVICORN_PID" 2>/dev/null || true
   gosu postgres pg_ctl -D "$PGDATA" -m fast -w stop || true
   exit 0
