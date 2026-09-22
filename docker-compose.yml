@@ -1,0 +1,39 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    platform: linux/amd64
+    environment:
+      POSTGRES_USER: doch1
+      POSTGRES_PASSWORD: doch1
+      POSTGRES_DB: doch1
+    ports:
+      - "5433:5432"
+    volumes:
+      - doch1-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U doch1 -d doch1"]
+      interval: 3s
+      retries: 20
+
+  backend:
+    build: ./backend
+    environment:
+      APP_ENV: development
+      DEV_LOGIN_ENABLED: "true"
+      DATABASE_URL: postgresql+psycopg://doch1:doch1@db:5432/doch1
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  doch1-db:
