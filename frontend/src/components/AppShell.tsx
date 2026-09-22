@@ -2,7 +2,7 @@ import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn'
 import BusinessCenterIcon from '@mui/icons-material/BusinessCenter'
 import GroupsIcon from '@mui/icons-material/Groups'
 import LogoutIcon from '@mui/icons-material/Logout'
-import NotificationsIcon from '@mui/icons-material/Notifications'
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import {
   Alert,
@@ -25,9 +25,9 @@ import {
 } from '@mui/material'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { api } from '../api/client'
 import { useSession } from '../auth'
 import { tokens } from '../theme'
+import { NotificationsMenu } from './NotificationsMenu'
 
 // ------------------------------------------------------------------ toasts
 
@@ -37,7 +37,7 @@ export const useToast = () => useContext(ToastContext)
 
 // ------------------------------------------------------------------ unread notifications (polling)
 
-const UnreadContext = createContext<{ unread: number; refresh: () => void }>({ unread: 0, refresh: () => {} })
+const UnreadContext = createContext<{ refresh: () => void }>({ refresh: () => {} })
 export const useUnread = () => useContext(UnreadContext)
 
 interface NavItem {
@@ -56,33 +56,30 @@ export function AppShell({ children }: { children: ReactNode }) {
   const nav = useNavigate()
   const loc = useLocation()
   const [toast, setToast] = useState<Toast | null>(null)
-  const [unread, setUnread] = useState(0)
   const [menuEl, setMenuEl] = useState<HTMLElement | null>(null)
 
-  const refresh = useCallback(() => {
-    api.unreadCount().then((r) => setUnread(r.unread), () => {})
-  }, [])
-  useEffect(() => {
-    refresh()
-    const id = window.setInterval(refresh, 20000)
-    return () => window.clearInterval(id)
-  }, [refresh, loc.pathname])
+  const [menuKey, setMenuKey] = useState(0)
+  // Remount the bell so its unread count refreshes after actions that create/clear notifications.
+  const refresh = useCallback(() => setMenuKey((k) => k + 1), [])
+  useEffect(refresh, [refresh, loc.pathname])
 
   const items: NavItem[] = useMemo(() => {
-    const list: NavItem[] = [{ to: '/', label: 'הדיווח שלי', icon: <AssignmentTurnedInIcon /> }]
+    const list: NavItem[] = [
+      { to: '/', label: 'הדיווח שלי', icon: <AssignmentTurnedInIcon /> },
+      { to: '/history', label: 'היסטוריה', icon: <CalendarMonthIcon /> },
+    ]
     if (me.capabilities.commander) list.push({ to: '/soldiers', label: 'החיילים שלי', icon: <GroupsIcon /> })
     if (me.capabilities.commander) list.push({ to: '/checkins', label: 'ירוק בעיניים', icon: <VisibilityIcon /> })
     if (me.capabilities.hr) list.push({ to: '/hr', label: 'ניהול שלישות', icon: <BusinessCenterIcon /> })
-    list.push({ to: '/notifications', label: 'התראות', icon: <NotificationsIcon />, badge: unread })
     return list
-  }, [me, unread])
+  }, [me])
 
   const current = items.find((i) => (i.to === '/' ? loc.pathname === '/' : loc.pathname.startsWith(i.to))) ?? items[0]
   const roles = [me.capabilities.commander && 'מפקד', me.capabilities.hr && 'שלישות'].filter(Boolean).join(' + ') || 'חייל'
 
   return (
     <ToastContext.Provider value={setToast}>
-      <UnreadContext.Provider value={{ unread, refresh }}>
+      <UnreadContext.Provider value={{ refresh }}>
         <Box sx={{ minHeight: '100dvh', bgcolor: 'background.default' }}>
           <Box
             component="header"
@@ -122,11 +119,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </Box>
               </Stack>
               <Stack direction="row" alignItems="center" spacing={0.5}>
-                <IconButton aria-label={`התראות, ${unread} שלא נקראו`} onClick={() => nav('/notifications')} sx={{ color: '#fff' }}>
-                  <Badge badgeContent={unread} color="error" max={99}>
-                    <NotificationsIcon />
-                  </Badge>
-                </IconButton>
+                <NotificationsMenu key={menuKey} />
                 <IconButton aria-label="תפריט משתמש" onClick={(e) => setMenuEl(e.currentTarget)} sx={{ color: '#fff' }}>
                   <LogoutIcon />
                 </IconButton>

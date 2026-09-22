@@ -29,6 +29,7 @@ const ERRORS: Record<string, string> = {
   NOT_IN_HR_UNIT: 'החייל אינו שייך ליחידה שבאחריותך.',
   INVALID_DATE_RANGE: 'טווח התאריכים אינו תקין.',
   DATE_RANGE_TOO_LONG: 'ניתן לייצא עד שנה אחת בכל פעם.',
+  DATE_RANGE_TOO_LONG_REPORT: 'ניתן לדווח עד 31 ימים בבת אחת.',
   NO_SUBORDINATES: 'אין חיילים תחת פיקודך לשליחת בקשה.',
   CHECKIN_NOT_FOUND: 'הבקשה לא נמצאה.',
   NOT_YOUR_CHECKIN: 'הבקשה לא נשלחה על ידך.',
@@ -124,3 +125,25 @@ export const relativeDayLabel = (iso: string, today: string) => {
   if (iso === addDays(today, -1)) return 'אתמול'
   return ''
 }
+
+// ---------------------------------------------------------------- months
+
+/** YYYY-MM of a YYYY-MM-DD string. */
+export const monthOf = (iso: string) => iso.slice(0, 7)
+
+export const addMonths = (ym: string, n: number) => {
+  const d = parseDay(`${ym}-01`)
+  d.setUTCMonth(d.getUTCMonth() + n)
+  return d.toISOString().slice(0, 7)
+}
+
+export const monthRange = (ym: string) => {
+  const first = `${ym}-01`
+  const last = addDays(`${addMonths(ym, 1)}-01`, -1)
+  return { first, last }
+}
+
+export const fmtMonth = (ym: string) =>
+  new Intl.DateTimeFormat('he-IL', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(parseDay(`${ym}-01`))
+
+export const daysBetween = (from: string, to: string) => Math.round((parseDay(to).getTime() - parseDay(from).getTime()) / 86400000)

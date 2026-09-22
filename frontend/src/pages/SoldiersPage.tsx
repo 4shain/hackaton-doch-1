@@ -17,7 +17,8 @@ import type { Roster, RosterRow } from '../api/types'
 import { useSession } from '../auth'
 import { useToast } from '../components/AppShell'
 import { accentFor, Empty, ErrorState, Loading, MetricCard, PersonAvatar, SectionTitle, StateChip, StatusChip } from '../components/common'
-import { HistoryDialog, ReportFormDialog } from '../components/dialogs'
+import { ReportFormDialog } from '../components/dialogs'
+import { CalendarDialog } from '../components/MonthCalendar'
 import { Distribution } from '../components/Distribution'
 import { fmtDateTime, fmtDayLong, relativeDayLabel } from '../lib/i18n'
 import { tokens } from '../theme'
@@ -315,11 +316,13 @@ export default function SoldiersPage() {
         }}
       />
 
-      <HistoryDialog
+      <CalendarDialog
         open={!!historyRow}
         onClose={() => setHistoryRow(null)}
         title={`היסטוריית דיווחים – ${historyRow?.soldier.full_name ?? ''}`}
-        load={() => api.commanderHistory(historyRow!.soldier.id, 60).then((h) => h.reports)}
+        today={today}
+        initialDate={date}
+        load={(from, to) => api.commanderHistory(historyRow!.soldier.id, from, to).then((h) => h.reports)}
       />
     </Stack>
   )

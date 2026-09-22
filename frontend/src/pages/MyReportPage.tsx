@@ -3,6 +3,7 @@ import ApartmentIcon from '@mui/icons-material/Apartment'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import DateRangeIcon from '@mui/icons-material/DateRange'
 import EventIcon from '@mui/icons-material/Event'
+import EventRepeatIcon from '@mui/icons-material/EventRepeat'
 import LockIcon from '@mui/icons-material/Lock'
 import SendIcon from '@mui/icons-material/Send'
 import { Alert, Box, Button, ButtonBase, Card, Collapse, Stack, TextField, Typography } from '@mui/material'
@@ -12,8 +13,9 @@ import { api, errorMessage } from '../api/client'
 import type { Report } from '../api/types'
 import { useSession } from '../auth'
 import { useToast } from '../components/AppShell'
-import { Empty, ErrorState, Loading, PersonAvatar, Pill, SectionTitle, StateChip, StatusChip } from '../components/common'
+import { ErrorState, Loading, PersonAvatar, Pill, StateChip } from '../components/common'
 import { LayersView } from '../components/dialogs'
+import { RangeReportDialog } from '../components/RangeReportDialog'
 import { ReasonPicker, reasonError, type ReasonValue } from '../components/ReasonPicker'
 import { addDays, fmtDay, fmtDayLong, fmtDayNum, fmtWeekdayShort, relativeDayLabel, STATE_LABEL } from '../lib/i18n'
 import { tokens } from '../theme'
@@ -33,6 +35,7 @@ export default function MyReportPage() {
   const [showErrors, setShowErrors] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [rangeOpen, setRangeOpen] = useState(false)
 
   const atBaseReason = meta.reasons.find((r) => r.code === 'at_base')
   const absenceReasons = useMemo(() => meta.reasons.filter((r) => r.code !== 'at_base'), [meta.reasons])
@@ -90,7 +93,6 @@ export default function MyReportPage() {
 
   const week = Array.from({ length: 7 }, (_, i) => addDays(today, i))
   const yesterday = byDate.get(addDays(today, -1))
-  const history = (reports ?? []).filter((r) => r.report_date < today).sort((a, b) => b.report_date.localeCompare(a.report_date))
 
   if (loadError) return <ErrorState message={loadError} onRetry={load} />
   if (!reports) return <Loading />
@@ -138,13 +140,18 @@ export default function MyReportPage() {
 
         {/* Week strip */}
         <Box sx={{ mt: 1.5, p: 1.5, borderRadius: 3, bgcolor: '#f0f4ff', border: '1px solid #d2d9f4' }}>
-          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1} sx={{ mb: 1 }}>
             <Stack direction="row" spacing={0.75} alignItems="center">
               <DateRangeIcon sx={{ color: tokens.primary }} />
               <Typography variant="h6" component="h2">
                 דיווח לשבוע הקרוב
               </Typography>
             </Stack>
+            <Button size="small" variant="outlined" startIcon={<EventRepeatIcon />} onClick={() => setRangeOpen(true)} sx={{ bgcolor: '#fff', flexShrink: 0 }}>
+              דיווח לכמה ימים
+            </Button>
+          </Stack>
+          <Stack direction="row" justifyContent="flex-end" sx={{ mb: 1 }}>
             <TextField
               type="date"
               size="small"
@@ -308,26 +315,22 @@ export default function MyReportPage() {
         </>
       )}
 
-      <SectionTitle>הדיווחים הקודמים שלי</SectionTitle>
-      {history.length === 0 ? (
-        <Empty title="אין דיווחים קודמים" />
-      ) : (
-        <Card>
-          {history.slice(0, 14).map((r, i) => (
-            <ButtonBase
-              key={r.id}
-              onClick={() => setSelected(r.report_date)}
-              sx={{ width: '100%', justifyContent: 'space-between', px: 2, py: 1.25, borderTop: i ? '1px solid #eef1f6' : 'none', gap: 1 }}
-            >
-              <Typography sx={{ fontWeight: 600, minWidth: 90, textAlign: 'start' }}>{fmtDay(r.report_date)}</Typography>
-              <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap justifyContent="flex-end">
-                <StatusChip report={r} />
-                <StateChip state={r.state} />
-              </Stack>
-            </ButtonBase>
-          ))}
-        </Card>
-      )}
+      <RangeReportDialog
+        open={rangeOpen}
+        onClose={() => setRangeOpen(false)}
+        today={today}
+        startDate={selected}
+        reasons={meta.reasons}
+        onDone={(r) => {
+          load()
+          toast({
+            severity: r.skipped_locked.length ? 'warning' : 'success',
+            message:
+              `הדיווח נשמר ל-${r.submitted.length} ימים` +
+              (r.skipped_locked.length ? ` (${r.skipped_locked.length} ימים נעולים ע״י השלישות לא שונו)` : ''),
+          })
+        }}
+      />
     </Stack>
   )
 }

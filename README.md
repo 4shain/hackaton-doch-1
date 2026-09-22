@@ -137,8 +137,9 @@ cd frontend && npm install && npm run dev      # proxies /api to :8000
 
 ## Walkthrough
 
-1. **Soldier** – log in as איתי כהן → "האם אתה בבסיס?" → **כן, אני בבסיס** (report is pending commander approval). Pick a day later in the week → **לא, אני לא בבסיס** → choose e.g. הפנייה רפואית; notes are required → the report is saved as *מתוכנן* and enters the queue at 08:00 on that date.
-2. **Commander** – log in as עומר לוי → **החיילים שלי**: metrics, distribution, filter chips. **אשר דיווח**, **תקן ואשר** (writes the commander layer), **דווח בשם החייל** for missing soldiers, history per soldier. Then **העברת N דיווחים מאושרים לשלישות**.
+1. **Soldier** – log in as איתי כהן. **דיווח לכמה ימים** reports one status for a date range (up to 31 days) in one step; days HR has locked are skipped, not overwritten. **היסטוריה** shows a month calendar (color + icon per day, legend, month navigation); tapping a day shows its three layers. Notifications open as a floating list from the bell in the header.
+   Then, as איתי כהן → "האם אתה בבסיס?" → **כן, אני בבסיס** (report is pending commander approval). Pick a day later in the week → **לא, אני לא בבסיס** → choose e.g. הפנייה רפואית; notes are required → the report is saved as *מתוכנן* and enters the queue at 08:00 on that date.
+2. **Commander** – log in as עומר לוי → **החיילים שלי**: metrics, distribution, filter chips. **אשר דיווח**, **תקן ואשר** (writes the commander layer), **דווח בשם החייל** for missing soldiers. A soldier's history opens as the same month calendar (HR gets it too, with edit/audit actions for the selected day). Then **העברת N דיווחים מאושרים לשלישות**.
 3. **HR** – log in as מיכל פרץ → **ניהול שלישות**: filter by date/soldier, see handed-off / pending / missing, edit current or historical reports (HR layer), view the audit log, export CSV.
 4. **ירוק בעיניים** – as עומר לוי send a request (all recursive subordinates are snapshotted as recipients and notified). Log in as איתי כהן: the app immediately goes to a separate, blocking page (`/checkin`) that must be answered with a free-text location before anything else is usable. Users already in the app are taken over within ~15 seconds (polling). For the chain: send as רון ברק, log in as יעל מזרחי, answer, then see her company's status and re-send it to them. Back as עומר, open the request to see responded/pending counts, locations and times; close it when done.
 
@@ -214,7 +215,7 @@ To run it by hand: `python -m app.cli run-daily-job --date YYYY-MM-DD`. It is no
 
 ## Verification
 
-- `cd backend && uv run pytest` runs 30 API/domain tests against a real PostGIS database (`doch1_test`). Create it once with `docker compose exec db psql -U doch1 -c "CREATE DATABASE doch1_test"`. They cover:
+- `cd backend && uv run pytest` runs 32 API/domain tests against a real PostGIS database (`doch1_test`). Create it once with `docker compose exec db psql -U doch1 -c "CREATE DATABASE doch1_test"`. They cover:
   - auth boundaries and client role claims being ignored;
   - all four role combinations, and combined roles keeping both scopes;
   - commander and HR scopes;
@@ -225,9 +226,10 @@ To run it by hand: `python -m app.cli run-daily-job --date YYYY-MM-DD`. It is no
   - historical HR edits, locking and audit;
   - CSV scope and format;
   - recursive check-in recipients and snapshotting, response isolation, closing, mid-level commander subtree status and re-send;
+  - multi-day reporting (all days written, HR-locked days skipped, validation before any write);
   - the idempotent 08:00 job;
   - unit cycle prevention.
-- `cd e2e && npm i && npx playwright install chromium && node journey.mjs` runs a browser journey with 34 checks against the running app (reseed first). It covers soldier → commander → HR, the ירוק בעיניים round trip, RTL on the document and on portal dialogs, and no horizontal overflow at 390px and 1366px. Screenshots are saved to `e2e/screens/`.
+- `cd e2e && npm i && npx playwright install chromium && node journey.mjs` runs a browser journey with 43 checks against the running app (reseed first). It covers soldier → commander → HR, the ירוק בעיניים round trip, RTL on the document and on portal dialogs, and no horizontal overflow at 390px and 1366px. Screenshots are saved to `e2e/screens/`.
 
 ## Follow-ups (deliberately not built)
 

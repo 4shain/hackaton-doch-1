@@ -181,57 +181,6 @@ export function LayersView({ report }: { report: Report }) {
   )
 }
 
-export function HistoryDialog({
-  open,
-  onClose,
-  title,
-  load,
-  renderActions,
-}: {
-  open: boolean
-  onClose: () => void
-  title: string
-  load: () => Promise<Report[]>
-  renderActions?: (r: Report) => ReactNode
-}) {
-  const [reports, setReports] = useState<Report[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  const reload = () => {
-    setError(null)
-    setReports(null)
-    load().then(setReports, (e) => setError(errorMessage(e)))
-  }
-  useEffect(() => {
-    if (open) reload()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
-
-  return (
-    <AppDialog open={open} onClose={onClose} title={title} maxWidth="md">
-      {error ? (
-        <ErrorState message={error} onRetry={reload} />
-      ) : !reports ? (
-        <Loading />
-      ) : reports.length === 0 ? (
-        <Empty title="אין דיווחים בטווח" />
-      ) : (
-        <Stack spacing={1.5}>
-          {reports.map((r) => (
-            <Box key={r.id} sx={{ border: '1px solid #e2e8f0', borderRadius: 3, p: 1.5 }}>
-              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-                <Typography sx={{ fontWeight: 700 }}>{fmtDay(r.report_date)}</Typography>
-                {renderActions?.(r)}
-              </Stack>
-              <LayersView report={r} />
-            </Box>
-          ))}
-        </Stack>
-      )}
-    </AppDialog>
-  )
-}
-
 export function AuditDialog({ open, onClose, load, reasons }: { open: boolean; onClose: () => void; load: () => Promise<AuditEvent[]>; reasons: Reason[] }) {
   const [events, setEvents] = useState<AuditEvent[] | null>(null)
   const [error, setError] = useState<string | null>(null)

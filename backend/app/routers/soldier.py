@@ -21,6 +21,13 @@ class SubmitIn(BaseModel):
     notes: str | None = Field(default=None, max_length=500)
 
 
+class SubmitRangeIn(BaseModel):
+    date_from: date
+    date_to: date
+    reason_id: int
+    notes: str | None = Field(default=None, max_length=500)
+
+
 @router.get("/meta")
 def meta(db: Session = Depends(get_db)) -> dict:
     reasons = db.scalars(select(AttendanceReason).where(AttendanceReason.active).order_by(AttendanceReason.sort_order)).all()
@@ -59,3 +66,9 @@ def my_reports(
 @router.post("/my/reports")
 def submit_my_report(body: SubmitIn, p: Principal = Depends(get_principal), db: Session = Depends(get_db)) -> dict:
     return svc.report_out(svc.soldier_submit(db, p, body.report_date, body.reason_id, body.notes))
+
+
+@router.post("/my/reports/range")
+def submit_my_report_range(body: SubmitRangeIn, p: Principal = Depends(get_principal), db: Session = Depends(get_db)) -> dict:
+    """Same status for several consecutive days (e.g. a vacation)."""
+    return svc.soldier_submit_range(db, p, body.date_from, body.date_to, body.reason_id, body.notes)

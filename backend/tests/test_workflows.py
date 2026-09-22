@@ -397,3 +397,33 @@ def test_resend_requires_being_a_recipient_of_open_parent(login):
     assert err(noa.post("/api/checkins", {"parent_request_id": parent["id"]})) == "CHECKIN_CLOSED"
     # Plain soldiers have no subtree view.
     assert login(SOLDIER).get("/api/checkins/received").status_code == 403
+
+
+# ------------------------------------------------------------------ multi-day reporting
+
+def test_range_report_fills_every_day_and_skips_hr_locked(db, login, reasons):
+    s = login(SOLDIER)
+    start = TODAY() + timedelta(days=1)
+    # HR has finalised one day in the middle: it must not be overwritten.
+    login(HR_ONLY).post("/api/hr/reports", {"soldier_id": s.me["id"], "report_date": (start + timedelta(days=2)).isoformat(), "reason_id": reasons["at_base"]["id"]})
+    r = s.post("/api/my/reports/range", {"date_from": start.isoformat(), "date_to": (start + timedelta(days=4)).isoformat(), "reason_id": reasons["vacation"]["id"]})
+    body = r.json()
+    assert len(body["submitted"]) == 4 and body["skipped_locked"] == [(start + timedelta(days=2)).isoformat()]
+    mine = {x["report_date"]: x for x in s.get("/api/my/reports").json()}
+    assert mine[start.isoformat()]["state"] == "scheduled"
+    assert mine[start.isoformat()]["effective"]["reason"]["code"] == "vacation"
+    assert mine[(start + timedelta(days=2)).isoformat()]["effective"]["reason"]["code"] == "at_base"
+
+
+def test_range_report_validates_before_writing(db, login, reasons):
+    s = login(SOLDIER)
+    count = lambda: db.scalar(select(func.count()).where(AttendanceReport.soldier_id == s.me["id"]))  # noqa: E731
+    before = count()
+    d0, d1 = TODAY().isoformat(), (TODAY() + timedelta(days=2)).isoformat()
+    assert err(s.post("/api/my/reports/range", {"date_from": d0, "date_to": d1, "reason_id": reasons["medical"]["id"]})) == "NOTES_REQUIRED"
+    assert err(s.post("/api/my/reports/range", {"date_from": d1, "date_to": d0, "reason_id": reasons["at_base"]["id"]})) == "INVALID_DATE_RANGE"
+    far = (TODAY() + timedelta(days=40)).isoformat()
+    assert err(s.post("/api/my/reports/range", {"date_from": d0, "date_to": far, "reason_id": reasons["at_base"]["id"]})) == "DATE_RANGE_TOO_LONG_REPORT"
+    past = (TODAY() - timedelta(days=1)).isoformat()
+    assert err(s.post("/api/my/reports/range", {"date_from": past, "date_to": d0, "reason_id": reasons["at_base"]["id"]})) == "PAST_DATE_NOT_ALLOWED"
+    assert count() == before

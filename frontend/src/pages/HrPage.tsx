@@ -30,7 +30,8 @@ import type { Report, Roster, RosterRow } from '../api/types'
 import { useSession } from '../auth'
 import { useToast } from '../components/AppShell'
 import { accentFor, Empty, ErrorState, Loading, MetricCard, SectionTitle, StateChip, StatusChip } from '../components/common'
-import { AuditDialog, HistoryDialog, ReportFormDialog } from '../components/dialogs'
+import { AuditDialog, ReportFormDialog } from '../components/dialogs'
+import { CalendarDialog } from '../components/MonthCalendar'
 import { Distribution } from '../components/Distribution'
 import { addDays, fmtDay, fmtDayLong, SOURCE_LABEL } from '../lib/i18n'
 
@@ -338,27 +339,29 @@ export default function HrPage() {
         }}
       />
 
-      <HistoryDialog
-        key={historyNonce}
+      <CalendarDialog
         open={!!historyFor}
         onClose={() => setHistoryFor(null)}
         title={`היסטוריה – ${historyFor?.soldier.full_name ?? ''}`}
-        load={() => api.hrHistory(historyFor!.soldier.id, addDays(today, -120), addDays(today, 60)).then((h) => h.reports)}
-        renderActions={(r) => (
+        today={today}
+        initialDate={date}
+        reloadKey={historyNonce}
+        load={(from, to) => api.hrHistory(historyFor!.soldier.id, from, to).then((h) => h.reports)}
+        renderActions={(d, r) => (
           <Stack direction="row" spacing={0.5}>
             <Button
               size="small"
+              variant="outlined"
               startIcon={<EditIcon />}
-              onClick={() => {
-                setEditing({ soldierId: r.soldier_id, name: historyFor!.soldier.full_name, date: r.report_date, report: r })
-                setHistoryFor(null)
-              }}
+              onClick={() => setEditing({ soldierId: historyFor!.soldier.id, name: historyFor!.soldier.full_name, date: d, report: r })}
             >
-              עדכון
+              {r ? 'עדכון שלישות' : 'דיווח בשם החייל'}
             </Button>
-            <Button size="small" startIcon={<ManageSearchIcon />} onClick={() => setAuditFor(r.id)}>
-              יומן
-            </Button>
+            {r && (
+              <Button size="small" startIcon={<ManageSearchIcon />} onClick={() => setAuditFor(r.id)}>
+                יומן
+              </Button>
+            )}
           </Stack>
         )}
       />

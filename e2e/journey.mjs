@@ -61,6 +61,36 @@ const shot = (page, name) => page.screenshot({ path: `${SHOTS}${name}.png`, full
   await page.getByText(/יישלח לאישור ב-08:00/).first().waitFor()
   check('future report is scheduled', await page.getByText('מתוכנן', { exact: true }).first().isVisible())
   await shot(page, '03-soldier-future-mobile')
+
+  // Multi-day report: one status for 5 days in a single step.
+  await page.getByRole('button', { name: 'דיווח לכמה ימים' }).click()
+  const range = page.getByRole('dialog')
+  await range.getByRole('radio', { name: /חופשה/ }).click()
+  await page.waitForTimeout(500)
+  await page.screenshot({ path: `${SHOTS}12-range-dialog-mobile.png` })
+  await range.getByRole('button', { name: 'דיווח ל-5 ימים' }).click()
+  check('multi-day report saved for 5 days', await page.getByText('הדיווח נשמר ל-5 ימים').waitFor().then(() => true, () => false))
+
+  // History as a month calendar.
+  await page.getByRole('navigation', { name: 'ניווט ראשי' }).getByRole('button', { name: /^היסטוריה/ }).click()
+  await page.getByRole('grid').waitFor()
+  check('history calendar shows every day of the month', (await page.getByRole('gridcell').count()) >= 28)
+  await page.getByRole('gridcell').first().click()
+  check('clicking a calendar day shows its report', await page.getByText(/דיווח החייל|לא נמצא דיווח ליום זה|טרם דווח ליום זה|חייל/).first().isVisible())
+  await shot(page, '13-history-calendar-mobile')
+  await page.getByRole('button', { name: 'החודש הקודם' }).click()
+  await page.waitForTimeout(400)
+  check('previous month navigation works', (await page.getByRole('gridcell').count()) >= 28)
+
+  // Notifications live in a floating list on the bell (no page, no nav item).
+  check('no notifications item in the navigation', (await page.getByRole('navigation', { name: 'ניווט ראשי' }).getByRole('button', { name: /^התראות/ }).count()) === 0)
+  await page.getByRole('button', { name: /^התראות, / }).click()
+  const pop = page.getByRole('dialog', { name: 'התראות' })
+  check('bell opens a floating notifications list', await pop.waitFor().then(() => true, () => false))
+  check('notifications popover is RTL', await pop.evaluate((el) => getComputedStyle(el).direction === 'rtl'))
+  await page.waitForTimeout(500)
+  await page.screenshot({ path: `${SHOTS}14-notifications-popover-mobile.png` })
+  await page.keyboard.press('Escape')
   await ctx.close()
 }
 
@@ -94,6 +124,12 @@ const shot = (page, name) => page.screenshot({ path: `${SHOTS}${name}.png`, full
   await page.getByRole('button', { name: 'החיילים שלי' }).click()
   await page.getByText('פירוט חיילים').waitFor()
   await shot(page, '05-commander-desktop')
+  await page.getByRole('button', { name: 'היסטוריית דיווחים של איתי כהן' }).click()
+  const cal = page.getByRole('dialog')
+  check('soldier history opens as a month calendar', await cal.getByRole('grid').waitFor().then(() => true, () => false))
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: `${SHOTS}15-commander-soldier-calendar-desktop.png` })
+  await page.keyboard.press('Escape')
   await ctx.close()
 }
 
@@ -108,12 +144,17 @@ const shot = (page, name) => page.screenshot({ path: `${SHOTS}${name}.png`, full
 
   // Historical HR edit via the history dialog.
   await row.getByRole('button', { name: /היסטוריה של/ }).click()
-  await page.getByRole('dialog').getByRole('button', { name: 'עדכון' }).nth(1).click()
-  const dlg = page.getByRole('dialog')
+  const hrCal = page.getByRole('dialog')
+  await hrCal.getByRole('grid').waitFor()
+  await hrCal.getByRole('gridcell').nth(9).click() // a past day in the current month
+  await hrCal.getByRole('button', { name: 'עדכון שלישות' }).click()
+  const dlg = page.getByRole('dialog').last()
   await dlg.getByRole('radio', { name: /חופשה/ }).click()
   await dlg.getByRole('button', { name: 'שמירת עדכון שלישות' }).click()
   await page.getByText(/העדכון נשמר/).waitFor()
   check('HR historical edit saved', true)
+  check('calendar reflects HR edit', await hrCal.getByRole('gridcell').nth(9).getAttribute('aria-label').then((l) => l.includes('חופשה') && l.includes('שלישות')))
+  await page.keyboard.press('Escape')
 
   const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'ייצוא CSV' }).click()])
   const path = await download.path()
@@ -176,7 +217,7 @@ const shot = (page, name) => page.screenshot({ path: `${SHOTS}${name}.png`, full
 // ---------------------------------------------------------------- horizontal overflow check
 for (const [name, vp] of [['mobile', MOBILE], ['desktop', DESKTOP]]) {
   const { ctx, page } = await loginAs('דנה אלון', vp)
-  for (const nav of ['הדיווח שלי', 'החיילים שלי', 'ירוק בעיניים', 'ניהול שלישות', 'התראות']) {
+  for (const nav of ['הדיווח שלי', 'היסטוריה', 'החיילים שלי', 'ירוק בעיניים', 'ניהול שלישות']) {
     await page.getByRole('navigation', { name: 'ניווט ראשי' }).getByRole('button', { name: new RegExp(`^${nav}`) }).first().click()
     await page.waitForTimeout(500)
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)

@@ -75,8 +75,10 @@ export const api = {
     d<Report>(http.post('/api/my/reports', body)),
 
   commanderRoster: (report_date: string) => d<Roster>(http.get('/api/commander/roster', { params: { report_date } })),
-  commanderHistory: (soldierId: number, days = 30) =>
-    d<SoldierHistory>(http.get(`/api/commander/soldiers/${soldierId}/history`, { params: { days } })),
+  submitMyReportRange: (body: { date_from: string; date_to: string; reason_id: number; notes?: string | null }) =>
+    d<{ submitted: string[]; skipped_locked: string[] }>(http.post('/api/my/reports/range', body)),
+  commanderHistory: (soldierId: number, date_from: string, date_to: string) =>
+    d<SoldierHistory>(http.get(`/api/commander/soldiers/${soldierId}/history`, { params: { date_from, date_to } })),
   approve: (reportId: number, body: { reason_id?: number | null; notes?: string | null } = {}) =>
     d<Report>(http.post(`/api/commander/reports/${reportId}/approve`, body)),
   onBehalf: (body: { soldier_id: number; report_date: string; reason_id: number; notes?: string | null }) =>

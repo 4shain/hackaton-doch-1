@@ -10,7 +10,7 @@ import CheckinsPage from './pages/CheckinsPage'
 import HrPage from './pages/HrPage'
 import LoginPage from './pages/LoginPage'
 import MyReportPage from './pages/MyReportPage'
-import NotificationsPage from './pages/NotificationsPage'
+import HistoryPage from './pages/HistoryPage'
 import SoldiersPage from './pages/SoldiersPage'
 
 const POLL_MS = 15000
@@ -64,7 +64,7 @@ export default function App() {
         <Route path="/checkins" element={me.capabilities.commander ? <CheckinsPage /> : <Navigate to="/" replace />} />
         <Route path="/checkin" element={<Navigate to="/" replace />} />
         <Route path="/hr" element={me.capabilities.hr ? <HrPage /> : <Navigate to="/" replace />} />
-        <Route path="/notifications" element={<NotificationsPage />} />
+        <Route path="/history" element={<HistoryPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AppShell>

@@ -58,13 +58,15 @@ def roster(
 def soldier_history(
     soldier_id: int,
     days: int = Query(default=30, ge=1, le=365),
+    date_from: date | None = None,
+    date_to: date | None = None,
     p: Principal = Depends(require_commander),
     db: Session = Depends(get_db),
 ) -> dict:
     require_commander_of(p, soldier_id)
     today = local_today()
     soldier = db.get(User, soldier_id)
-    reports = svc.history(db, soldier_id, today - timedelta(days=days), today + timedelta(days=60))
+    reports = svc.history(db, soldier_id, date_from or today - timedelta(days=days), date_to or today + timedelta(days=60))
     return {"soldier": svc.soldier_out(soldier), "reports": [svc.report_out(r) for r in reports]}
 
 
