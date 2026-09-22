@@ -1,5 +1,8 @@
 # hackaton-doch-1
 
+## about doch 1
+Report 1 (Doch 1) is an IDF digital system for reporting and managing soldiers’ attendance, available through a website and mobile app. Soldiers report their daily status, such as present at their unit, on an assignment outside the unit, on leave, or on sick leave. Commanders review and approve these reports, and the information is transferred to the IDF’s human resources systems. The system streamlines attendance reporting and provides commanders and HR personnel with a clear overview of personnel availability.
+
 ## Entities
 ### Unit
 Each unit has a single commander, and possibly some HRs.
