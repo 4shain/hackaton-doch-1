@@ -62,13 +62,15 @@ const shot = (page, name) => page.screenshot({ path: `${SHOTS}${name}.png`, full
   check('future report is scheduled', await page.getByText('מתוכנן', { exact: true }).first().isVisible())
   await shot(page, '03-soldier-future-mobile')
 
-  // Multi-day report: one status for 5 days in a single step.
-  await page.getByRole('button', { name: 'דיווח לכמה ימים' }).click()
-  const range = page.getByRole('dialog')
-  await range.getByRole('radio', { name: /חופשה/ }).click()
+  // Multi-day report: select days inline, without opening another page or dialog.
+  await page.getByRole('switch', { name: 'בחירת כמה ימים' }).click()
+  const days = page.getByRole('checkbox')
+  for (const i of [0, 1, 2, 3]) await days.nth(i).click()
+  await page.getByRole('button', { name: 'לא, אני לא בבסיס' }).click()
+  await page.getByRole('radio', { name: /חופשה/ }).click()
   await page.waitForTimeout(500)
-  await page.screenshot({ path: `${SHOTS}12-range-dialog-mobile.png` })
-  await range.getByRole('button', { name: 'דיווח ל-5 ימים' }).click()
+  await page.screenshot({ path: `${SHOTS}12-multi-day-inline-mobile.png`, fullPage: true })
+  await page.getByRole('button', { name: 'שמירת דיווח ל-5 ימים' }).click()
   check('multi-day report saved for 5 days', await page.getByText('הדיווח נשמר ל-5 ימים').waitFor().then(() => true, () => false))
 
   // History as a month calendar.

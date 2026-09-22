@@ -139,7 +139,7 @@ cd frontend && npm install && npm run dev      # proxies /api to :8000
 
 ## Walkthrough
 
-1. **Soldier** – log in as איתי כהן. **דיווח לכמה ימים** reports one status for a date range (up to 31 days) in one step; days HR has locked are skipped, not overwritten. **היסטוריה** shows a month calendar (color + icon per day, legend, month navigation); tapping a day shows its three layers. Notifications open as a floating list from the bell in the header.
+1. **Soldier** – log in as איתי כהן. Turn on **בחירת כמה ימים**, mark the desired days directly in the week strip, and submit one status for all of them; days HR has locked are skipped, not overwritten. **היסטוריה** shows a month calendar (color + icon per day, legend, month navigation); tapping a day shows its three layers. Notifications open as a floating list from the bell in the header.
    Then, as איתי כהן → "האם אתה בבסיס?" → **כן, אני בבסיס** (report is pending commander approval). Pick a day later in the week → **לא, אני לא בבסיס** → choose e.g. הפנייה רפואית; notes are required → the report is saved as *מתוכנן* and enters the queue at 08:00 on that date.
 2. **Commander** – log in as עומר לוי → **החיילים שלי**: metrics, distribution, filter chips. **אשר דיווח**, **תקן ואשר** (writes the commander layer), **דווח בשם החייל** for missing soldiers. A soldier's history opens as the same month calendar (HR gets it too, with edit/audit actions for the selected day). Then **העברת N דיווחים מאושרים לשלישות**.
 3. **HR** – log in as מיכל פרץ → **ניהול שלישות**: filter by date/soldier, see handed-off / pending / missing, edit current or historical reports (HR layer), view the audit log, export CSV.

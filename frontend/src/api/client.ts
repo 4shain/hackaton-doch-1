@@ -77,6 +77,8 @@ export const api = {
   commanderRoster: (report_date: string) => d<Roster>(http.get('/api/commander/roster', { params: { report_date } })),
   submitMyReportRange: (body: { date_from: string; date_to: string; reason_id: number; notes?: string | null }) =>
     d<{ submitted: string[]; skipped_locked: string[] }>(http.post('/api/my/reports/range', body)),
+  submitMyReportDates: (body: { report_dates: string[]; reason_id: number; notes?: string | null }) =>
+    d<{ submitted: string[]; skipped_locked: string[] }>(http.post('/api/my/reports/dates', body)),
   commanderHistory: (soldierId: number, date_from: string, date_to: string) =>
     d<SoldierHistory>(http.get(`/api/commander/soldiers/${soldierId}/history`, { params: { date_from, date_to } })),
   approve: (reportId: number, body: { reason_id?: number | null; notes?: string | null } = {}) =>

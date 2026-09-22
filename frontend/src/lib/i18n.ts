@@ -22,6 +22,7 @@ const ERRORS: Record<string, string> = {
   REPORT_NOT_APPROVED: 'ניתן להעביר לשלישות רק דיווחים מאושרים.',
   ALREADY_SENT_TO_HR: 'הדיווח כבר הועבר לשלישות.',
   NOTHING_TO_SEND: 'אין דיווחים להעברה.',
+  NOTHING_TO_REPORT: 'יש לבחור לפחות יום אחד לדיווח.',
   COMMANDER_EDIT_TODAY_ONLY: 'מפקד יכול לשנות דיווחים של היום בלבד. שינוי היסטורי מתבצע בשלישות.',
   NOT_YOUR_SOLDIER: 'החייל אינו תחת פיקודך הישיר.',
   NOT_A_COMMANDER: 'פעולה זו זמינה למפקדים בלבד.',

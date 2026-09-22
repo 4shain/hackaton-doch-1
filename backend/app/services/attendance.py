@@ -193,6 +193,34 @@ def soldier_submit(db: Session, p: Principal, report_date: date, reason_id: int,
 MAX_RANGE_DAYS = 31
 
 
+def soldier_submit_dates(
+    db: Session, p: Principal, report_dates: list[date], reason_id: int, notes: str | None
+) -> dict:
+    """Report the same status for a selected set of days."""
+    dates = sorted(set(report_dates))
+    if not dates:
+        raise AppError("NOTHING_TO_REPORT", 422)
+    if len(dates) > MAX_RANGE_DAYS:
+        raise AppError("DATE_RANGE_TOO_LONG_REPORT", 422)
+
+    today = local_today()
+    if dates[0] < today:
+        raise AppError("PAST_DATE_NOT_ALLOWED", 422)
+    if dates[-1] > today + timedelta(days=get_settings().max_future_days):
+        raise AppError("DATE_TOO_FAR", 422)
+    validate_reason_and_notes(db, reason_id, notes)
+
+    submitted, skipped = [], []
+    for report_date in dates:
+        existing = find_report(db, p.id, report_date)
+        if existing is not None and existing.state == ReportState.hr_final:
+            skipped.append(report_date.isoformat())
+        else:
+            soldier_submit(db, p, report_date, reason_id, notes)
+            submitted.append(report_date.isoformat())
+    return {"submitted": submitted, "skipped_locked": skipped}
+
+
 def soldier_submit_range(
     db: Session, p: Principal, date_from: date, date_to: date, reason_id: int, notes: str | None
 ) -> dict:
@@ -201,28 +229,12 @@ def soldier_submit_range(
     Everything is validated up front, so no day is written if the input is invalid.
     Days already finalised by HR are skipped (never overwritten) and returned separately.
     """
-    today = local_today()
     if date_to < date_from:
         raise AppError("INVALID_DATE_RANGE", 422)
     if (date_to - date_from).days + 1 > MAX_RANGE_DAYS:
         raise AppError("DATE_RANGE_TOO_LONG_REPORT", 422)
-    if date_from < today:
-        raise AppError("PAST_DATE_NOT_ALLOWED", 422)
-    if date_to > today + timedelta(days=get_settings().max_future_days):
-        raise AppError("DATE_TOO_FAR", 422)
-    validate_reason_and_notes(db, reason_id, notes)
-
-    submitted, skipped = [], []
-    d = date_from
-    while d <= date_to:
-        existing = find_report(db, p.id, d)
-        if existing is not None and existing.state == ReportState.hr_final:
-            skipped.append(d.isoformat())
-        else:
-            soldier_submit(db, p, d, reason_id, notes)
-            submitted.append(d.isoformat())
-        d += timedelta(days=1)
-    return {"submitted": submitted, "skipped_locked": skipped}
+    dates = [date_from + timedelta(days=offset) for offset in range((date_to - date_from).days + 1)]
+    return soldier_submit_dates(db, p, dates, reason_id, notes)
 
 
 # ---------------------------------------------------------------- commander

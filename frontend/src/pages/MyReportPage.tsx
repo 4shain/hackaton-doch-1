@@ -3,10 +3,9 @@ import ApartmentIcon from '@mui/icons-material/Apartment'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import DateRangeIcon from '@mui/icons-material/DateRange'
 import EventIcon from '@mui/icons-material/Event'
-import EventRepeatIcon from '@mui/icons-material/EventRepeat'
 import LockIcon from '@mui/icons-material/Lock'
 import SendIcon from '@mui/icons-material/Send'
-import { Alert, Box, Button, ButtonBase, Card, Collapse, Stack, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, ButtonBase, Card, Collapse, FormControlLabel, Stack, Switch, TextField, Typography } from '@mui/material'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api, errorMessage } from '../api/client'
@@ -15,7 +14,6 @@ import { useSession } from '../auth'
 import { useToast } from '../components/AppShell'
 import { ErrorState, Loading, PersonAvatar, Pill, StateChip } from '../components/common'
 import { LayersView } from '../components/dialogs'
-import { RangeReportDialog } from '../components/RangeReportDialog'
 import { ReasonPicker, reasonError, type ReasonValue } from '../components/ReasonPicker'
 import { addDays, fmtDay, fmtDayLong, fmtDayNum, fmtWeekdayShort, relativeDayLabel, STATE_LABEL } from '../lib/i18n'
 import { tokens } from '../theme'
@@ -35,7 +33,8 @@ export default function MyReportPage() {
   const [showErrors, setShowErrors] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [rangeOpen, setRangeOpen] = useState(false)
+  const [multiMode, setMultiMode] = useState(false)
+  const [selectedDates, setSelectedDates] = useState<string[]>([])
 
   const atBaseReason = meta.reasons.find((r) => r.code === 'at_base')
   const absenceReasons = useMemo(() => meta.reasons.filter((r) => r.code !== 'at_base'), [meta.reasons])
@@ -52,6 +51,22 @@ export default function MyReportPage() {
   const isFuture = selected > today
   const locked = current?.state === 'hr_final'
   const editable = !isPast && !locked
+  const reportable = multiMode ? selectedDates.length > 0 : editable
+
+  const toggleMultiMode = (enabled: boolean) => {
+    setMultiMode(enabled)
+    setSelectedDates(enabled ? [selected < today ? today : selected] : [])
+    setAtBase(null)
+    setShowErrors(false)
+    setSubmitError(null)
+  }
+
+  const toggleDate = (date: string) => {
+    setSelectedDates((dates) => (dates.includes(date) ? dates.filter((d) => d !== date) : [...dates, date].sort()))
+    setAtBase(null)
+    setShowErrors(false)
+    setSubmitError(null)
+  }
 
   // Reset the form when switching dates.
   useEffect(() => {
@@ -64,16 +79,35 @@ export default function MyReportPage() {
   }, [selected, byDate])
 
   const submit = async (reasonId: number, notes: string | null) => {
+    const dates = multiMode ? selectedDates : [selected]
+    if (!dates.length) {
+      setSubmitError('יש לבחור לפחות יום אחד לדיווח.')
+      return
+    }
     setBusy(true)
     setSubmitError(null)
     try {
-      const r = await api.submitMyReport({ report_date: selected, reason_id: reasonId, notes })
-      setReports((prev) => [r, ...(prev ?? []).filter((x) => x.id !== r.id)])
-      setAtBase(null)
-      toast({
-        severity: 'success',
-        message: r.state === 'scheduled' ? `הדיווח ל-${fmtDay(selected)} נשמר ויישלח לאישור ב-08:00 באותו יום` : 'הדיווח נשלח לאישור המפקד',
-      })
+      if (multiMode) {
+        const result = await api.submitMyReportDates({ report_dates: dates, reason_id: reasonId, notes })
+        load()
+        setMultiMode(false)
+        setSelectedDates([])
+        setSelected(dates[0])
+        toast({
+          severity: result.skipped_locked.length ? 'warning' : 'success',
+          message:
+            `הדיווח נשמר ל-${result.submitted.length} ימים` +
+            (result.skipped_locked.length ? ` (${result.skipped_locked.length} ימים נעולים ע״י השלישות לא שונו)` : ''),
+        })
+      } else {
+        const r = await api.submitMyReport({ report_date: selected, reason_id: reasonId, notes })
+        setReports((prev) => [r, ...(prev ?? []).filter((x) => x.id !== r.id)])
+        setAtBase(null)
+        toast({
+          severity: 'success',
+          message: r.state === 'scheduled' ? `הדיווח ל-${fmtDay(selected)} נשמר ויישלח לאישור ב-08:00 באותו יום` : 'הדיווח נשלח לאישור המפקד',
+        })
+      }
     } catch (e) {
       setSubmitError(errorMessage(e))
     } finally {
@@ -147,33 +181,50 @@ export default function MyReportPage() {
                 דיווח לשבוע הקרוב
               </Typography>
             </Stack>
-            <Button size="small" variant="outlined" startIcon={<EventRepeatIcon />} onClick={() => setRangeOpen(true)} sx={{ bgcolor: '#fff', flexShrink: 0 }}>
-              דיווח לכמה ימים
-            </Button>
-          </Stack>
-          <Stack direction="row" justifyContent="flex-end" sx={{ mb: 1 }}>
-            <TextField
-              type="date"
-              size="small"
-              label="תאריך אחר"
-              value={selected}
-              onChange={(e) => e.target.value && setSelected(e.target.value)}
-              sx={{ width: 160, bgcolor: '#fff' }}
-              slotProps={{ inputLabel: { shrink: true }, htmlInput: { min: addDays(today, -30), max: addDays(today, 60) } }}
+            <FormControlLabel
+              label="בחירת כמה ימים"
+              labelPlacement="start"
+              control={<Switch checked={multiMode} onChange={(e) => toggleMultiMode(e.target.checked)} inputProps={{ 'aria-label': 'בחירת כמה ימים' }} />}
+              sx={{ m: 0, gap: 0.5, '& .MuiFormControlLabel-label': { fontSize: 13, fontWeight: 600 } }}
             />
           </Stack>
-          <Box role="tablist" aria-label="בחירת תאריך דיווח" sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 0.75 }}>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+            {multiMode ? (
+              <>
+                <Typography variant="body2" color="text.secondary">
+                  לחצו על הימים שתרצו לסמן
+                </Typography>
+                <Pill tone="primary" label={selectedDates.length === 1 ? 'נבחר יום אחד' : `נבחרו ${selectedDates.length} ימים`} />
+              </>
+            ) : (
+              <TextField
+                type="date"
+                size="small"
+                label="תאריך אחר"
+                value={selected}
+                onChange={(e) => e.target.value && setSelected(e.target.value)}
+                sx={{ width: 160, bgcolor: '#fff', mr: 'auto' }}
+                slotProps={{ inputLabel: { shrink: true }, htmlInput: { min: addDays(today, -30), max: addDays(today, 60) } }}
+              />
+            )}
+          </Stack>
+          <Box
+            role={multiMode ? 'group' : 'tablist'}
+            aria-label={multiMode ? 'בחירת ימים לדיווח' : 'בחירת תאריך דיווח'}
+            sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 0.75 }}
+          >
             {week.map((d) => {
-              const active = d === selected
+              const active = multiMode ? selectedDates.includes(d) : d === selected
               const r = byDate.get(d)
               const sub = relativeDayLabel(d, today) || (r ? (r.state === 'scheduled' ? 'מתוכנן' : 'דווח') : '—')
               return (
                 <ButtonBase
                   key={d}
-                  role="tab"
-                  aria-selected={active}
+                  role={multiMode ? 'checkbox' : 'tab'}
+                  aria-checked={multiMode ? active : undefined}
+                  aria-selected={multiMode ? undefined : active}
                   aria-label={`${fmtDayLong(d)}${r ? ', ' + STATE_LABEL[r.state] : ', לא דווח'}`}
-                  onClick={() => setSelected(d)}
+                  onClick={() => (multiMode ? toggleDate(d) : setSelected(d))}
                   sx={{
                     flexDirection: 'column',
                     py: 1.25,
@@ -203,46 +254,60 @@ export default function MyReportPage() {
       </Card>
 
       {/* Selected date status */}
-      <Card sx={{ p: 2 }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" useFlexGap spacing={1} sx={{ mb: current ? 1.5 : 0 }}>
-          <Box>
-            <Typography variant="body2" color="text.secondary">
-              תאריך הדיווח
-            </Typography>
-            <Typography variant="h3" component="h2">
-              {fmtDayLong(selected)} {relativeDayLabel(selected, today) && `(${relativeDayLabel(selected, today)})`}
-            </Typography>
-          </Box>
-          {current ? <StateChip state={current.state} /> : <Pill tone={isPast ? 'neutral' : 'danger'} label="טרם דווח" />}
-        </Stack>
-        {current && (
-          <>
-            {current.state === 'scheduled' && (
-              <Alert icon={<EventIcon />} severity="info" sx={{ mb: 1.5 }}>
-                דיווח עתידי: יישלח אוטומטית לאישור המפקד ב-08:00 בתאריך {fmtDay(current.report_date)}.
-              </Alert>
-            )}
-            {current.state === 'pending_approval' && (
-              <Alert severity="warning" sx={{ mb: 1.5 }}>
-                הדיווח נשלח וממתין לאישור המפקד.
-              </Alert>
-            )}
-            {locked && (
-              <Alert icon={<LockIcon />} severity="info" sx={{ mb: 1.5 }}>
-                הדיווח עודכן ע״י השלישות ונעול. לשינוי יש לפנות לשלישות.
-              </Alert>
-            )}
-            <LayersView report={current} />
-          </>
-        )}
-        {isPast && !current && (
-          <Typography color="text.secondary" sx={{ mt: 1 }}>
-            לא נמצא דיווח לתאריך זה. דיווח על תאריך שעבר מתבצע ע״י השלישות.
+      {multiMode ? (
+        <Card sx={{ p: 2, borderColor: tokens.primary, bgcolor: '#f8faff' }} aria-live="polite">
+          <Typography variant="body2" color="text.secondary">
+            ימים שנבחרו
           </Typography>
-        )}
-      </Card>
+          <Typography variant="h3" component="h2" sx={{ mt: 0.25 }}>
+            {selectedDates.length ? selectedDates.map(fmtDayLong).join(' · ') : 'עדיין לא נבחרו ימים'}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+            הדיווח שתבחרו יחול על כל הימים המסומנים. ימים שננעלו ע״י השלישות לא ישתנו.
+          </Typography>
+        </Card>
+      ) : (
+        <Card sx={{ p: 2 }}>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" useFlexGap spacing={1} sx={{ mb: current ? 1.5 : 0 }}>
+            <Box>
+              <Typography variant="body2" color="text.secondary">
+                תאריך הדיווח
+              </Typography>
+              <Typography variant="h3" component="h2">
+                {fmtDayLong(selected)} {relativeDayLabel(selected, today) && `(${relativeDayLabel(selected, today)})`}
+              </Typography>
+            </Box>
+            {current ? <StateChip state={current.state} /> : <Pill tone={isPast ? 'neutral' : 'danger'} label="טרם דווח" />}
+          </Stack>
+          {current && (
+            <>
+              {current.state === 'scheduled' && (
+                <Alert icon={<EventIcon />} severity="info" sx={{ mb: 1.5 }}>
+                  דיווח עתידי: יישלח אוטומטית לאישור המפקד ב-08:00 בתאריך {fmtDay(current.report_date)}.
+                </Alert>
+              )}
+              {current.state === 'pending_approval' && (
+                <Alert severity="warning" sx={{ mb: 1.5 }}>
+                  הדיווח נשלח וממתין לאישור המפקד.
+                </Alert>
+              )}
+              {locked && (
+                <Alert icon={<LockIcon />} severity="info" sx={{ mb: 1.5 }}>
+                  הדיווח עודכן ע״י השלישות ונעול. לשינוי יש לפנות לשלישות.
+                </Alert>
+              )}
+              <LayersView report={current} />
+            </>
+          )}
+          {isPast && !current && (
+            <Typography color="text.secondary" sx={{ mt: 1 }}>
+              לא נמצא דיווח לתאריך זה. דיווח על תאריך שעבר מתבצע ע״י השלישות.
+            </Typography>
+          )}
+        </Card>
+      )}
 
-      {editable && (
+      {reportable && (
         <>
           {/* "Are you at the base?" hero */}
           <Box
@@ -260,10 +325,16 @@ export default function MyReportPage() {
               </Box>
               <Box>
                 <Typography component="h2" sx={{ fontSize: 22, fontWeight: 700 }}>
-                  האם אתה בבסיס?
+                  {multiMode ? 'האם אתה בבסיס בימים שבחרת?' : 'האם אתה בבסיס?'}
                 </Typography>
                 <Typography sx={{ opacity: 0.9, fontSize: 14 }}>
-                  {current ? 'אפשר לעדכן את הדיווח. שינוי דיווח מאושר יחזיר אותו לאישור המפקד.' : `דיווח עבור ${fmtDayLong(selected)}`}
+                  {multiMode
+                    ? selectedDates.length === 1
+                      ? 'דיווח עבור יום אחד'
+                      : `דיווח אחד עבור ${selectedDates.length} ימים`
+                    : current
+                      ? 'אפשר לעדכן את הדיווח. שינוי דיווח מאושר יחזיר אותו לאישור המפקד.'
+                      : `דיווח עבור ${fmtDayLong(selected)}`}
                 </Typography>
               </Box>
             </Stack>
@@ -288,7 +359,7 @@ export default function MyReportPage() {
                 לא, אני לא בבסיס
               </Button>
             </Stack>
-            {isFuture && (
+            {(multiMode ? selectedDates.some((d) => d > today) : isFuture) && (
               <Typography sx={{ fontSize: 12, opacity: 0.85, mt: 1.25 }}>
                 דיווח עתידי יישמר כ״מתוכנן״ ויועבר לאישור ב-08:00 בתאריך הדיווח.
               </Typography>
@@ -307,7 +378,15 @@ export default function MyReportPage() {
               )}
               <ReasonPicker reasons={absenceReasons} value={value} onChange={setValue} showErrors={showErrors} />
               <Button fullWidth variant="contained" size="large" startIcon={<SendIcon />} onClick={submitAbsence} disabled={busy} sx={{ mt: 2 }}>
-                {busy ? 'שולח…' : isFuture ? 'שמירת דיווח עתידי' : 'שליחת דיווח לאישור המפקד'}
+                {busy
+                  ? 'שולח…'
+                  : multiMode
+                    ? selectedDates.length === 1
+                      ? 'שמירת דיווח ליום אחד'
+                      : `שמירת דיווח ל-${selectedDates.length} ימים`
+                    : isFuture
+                      ? 'שמירת דיווח עתידי'
+                      : 'שליחת דיווח לאישור המפקד'}
               </Button>
             </Card>
           </Collapse>
@@ -315,22 +394,6 @@ export default function MyReportPage() {
         </>
       )}
 
-      <RangeReportDialog
-        open={rangeOpen}
-        onClose={() => setRangeOpen(false)}
-        today={today}
-        startDate={selected}
-        reasons={meta.reasons}
-        onDone={(r) => {
-          load()
-          toast({
-            severity: r.skipped_locked.length ? 'warning' : 'success',
-            message:
-              `הדיווח נשמר ל-${r.submitted.length} ימים` +
-              (r.skipped_locked.length ? ` (${r.skipped_locked.length} ימים נעולים ע״י השלישות לא שונו)` : ''),
-          })
-        }}
-      />
     </Stack>
   )
 }

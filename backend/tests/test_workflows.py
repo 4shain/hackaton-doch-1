@@ -427,3 +427,27 @@ def test_range_report_validates_before_writing(db, login, reasons):
     past = (TODAY() - timedelta(days=1)).isoformat()
     assert err(s.post("/api/my/reports/range", {"date_from": past, "date_to": d0, "reason_id": reasons["at_base"]["id"]})) == "PAST_DATE_NOT_ALLOWED"
     assert count() == before
+
+
+def test_selected_dates_report_only_updates_the_chosen_days(db, login, reasons):
+    s = login(SOLDIER)
+    start = TODAY() + timedelta(days=20)
+    chosen = [start, start + timedelta(days=2), start + timedelta(days=4)]
+    # A selected HR-final day is skipped while the other selected days are saved.
+    login(HR_ONLY).post(
+        "/api/hr/reports",
+        {"soldier_id": s.me["id"], "report_date": chosen[1].isoformat(), "reason_id": reasons["at_base"]["id"]},
+    )
+    r = s.post(
+        "/api/my/reports/dates",
+        {"report_dates": [d.isoformat() for d in chosen], "reason_id": reasons["vacation"]["id"]},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json() == {
+        "submitted": [chosen[0].isoformat(), chosen[2].isoformat()],
+        "skipped_locked": [chosen[1].isoformat()],
+    }
+    mine = {x["report_date"]: x for x in s.get("/api/my/reports").json()}
+    assert mine[chosen[0].isoformat()]["effective"]["reason"]["code"] == "vacation"
+    assert mine[chosen[1].isoformat()]["effective"]["reason"]["code"] == "at_base"
+    assert (start + timedelta(days=1)).isoformat() not in mine
