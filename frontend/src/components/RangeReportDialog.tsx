@@ -105,7 +105,7 @@ export function RangeReportDialog({
           />
         </Box>
         <Typography color={rangeError ? 'error' : 'text.secondary'} variant="body2" aria-live="polite">
-          {rangeError ?? `${count} ימים: ${fmtDay(from)} – ${fmtDay(to)}. ימים שכבר דווחו יעודכנו; ימים שננעלו ע״י השלישות לא ישתנו.`}
+          {rangeError ?? `${count} ימים: ${fmtDay(from)} – ${fmtDay(to)}. ימים שכבר דווחו יעודכנו; ימים שננעלו ע״י המפקד או השלישות לא ישתנו.`}
         </Typography>
         {error && <Alert severity="error">{error}</Alert>}
         <ReasonPicker reasons={reasons} value={value} onChange={setValue} showErrors={showErrors} idPrefix="range" />

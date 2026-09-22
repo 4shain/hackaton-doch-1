@@ -160,9 +160,9 @@ def _seed_reports(db: Session, reasons: dict, company_soldiers: list[User], team
     # Today: a realistic mix for the demo.
     add(team1[3], today, "at_base", ReportState.pending_approval)
     add(team1[4], today, "vacation", ReportState.pending_approval)
-    add(team2[0], today, "at_base", ReportState.approved)
+    add(team2[0], today, "at_base", ReportState.sent_to_hr)
     add(team2[2], today, "medical", ReportState.pending_approval).soldier_notes = "תור לאורתופד 10:30"
-    add(team2[3], today, "at_base", ReportState.approved, by_commander=True)
+    add(team2[3], today, "at_base", ReportState.sent_to_hr, by_commander=True)
     # Missing today: team1[0..2], team2[1] (and the commanders).
 
     # Future: scheduled reports for the demo soldier.

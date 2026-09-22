@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
-from app.models import AttendanceReport, Notification, ReportState, Unit, User
+from app.models import AttendanceReport, Notification, ReportAuditEvent, ReportState, Unit, User
 from app.services.daily_job import run_daily_job
 from app.services.scope import set_unit_parent
 from app.timeutil import local_today
@@ -128,19 +128,19 @@ def test_future_report_is_scheduled_then_activated_idempotently(db, login, reaso
     assert db.scalar(select(func.count()).select_from(Notification)) == notif_count
 
 
-def test_daily_job_reminds_missing_and_keeps_approved(db, login, reasons):
+def test_daily_job_reminds_missing_and_keeps_handed_off_reports(db, login, reasons):
     run_daily_job(db, TODAY())
     sid = user_id(db, SOLDIER)
     assert db.scalar(select(func.count()).where(Notification.user_id == sid, Notification.kind == "report_reminder")) == 1
-    approved_before = {
-        r.id for r in db.scalars(select(AttendanceReport).where(AttendanceReport.report_date == TODAY(), AttendanceReport.state == ReportState.approved))
+    handed_off_before = {
+        r.id for r in db.scalars(select(AttendanceReport).where(AttendanceReport.report_date == TODAY(), AttendanceReport.state == ReportState.sent_to_hr))
     }
     run_daily_job(db, TODAY())
     db.expire_all()
-    approved_after = {
-        r.id for r in db.scalars(select(AttendanceReport).where(AttendanceReport.report_date == TODAY(), AttendanceReport.state == ReportState.approved))
+    handed_off_after = {
+        r.id for r in db.scalars(select(AttendanceReport).where(AttendanceReport.report_date == TODAY(), AttendanceReport.state == ReportState.sent_to_hr))
     }
-    assert approved_before and approved_before == approved_after
+    assert handed_off_before and handed_off_before == handed_off_after
     assert db.scalar(select(func.count()).where(Notification.user_id == sid, Notification.kind == "report_reminder")) == 1
 
 
@@ -169,7 +169,8 @@ def test_commander_correct_and_approve_preserves_layers(login, reasons):
     rid = roster_row(cmdr, SOLDIER_PENDING)["report"]["id"]
     r = cmdr.post(f"/api/commander/reports/{rid}/approve", {"reason_id": reasons["on_the_way"]["id"], "notes": "יגיע ב-10"})
     body = r.json()
-    assert body["state"] == "approved"
+    assert body["state"] == "sent_to_hr"
+    assert body["approved_at"] is not None
     assert body["soldier_layer"]["reason"]["code"] == "at_base"
     assert body["commander_layer"]["reason"]["code"] == "on_the_way"
     assert body["effective"] == {"source": "commander", "reason": body["commander_layer"]["reason"], "notes": "יגיע ב-10"}
@@ -179,6 +180,7 @@ def test_commander_on_behalf_is_attributed_to_commander(db, login, reasons):
     cmdr = login(TEAM1_CMDR)
     r = cmdr.post("/api/commander/reports/on-behalf", {"soldier_id": user_id(db, SOLDIER), "report_date": TODAY().isoformat(), "reason_id": reasons["at_base"]["id"]})
     body = r.json()
+    assert body["state"] == "sent_to_hr"
     assert body["soldier_layer"] is None
     assert body["commander_layer"]["by"]["personal_number"] == TEAM1_CMDR
     assert body["created_by"]["personal_number"] == TEAM1_CMDR
@@ -190,29 +192,90 @@ def test_commander_historical_edit_is_hr_only(db, login, reasons):
     assert err(r) == "COMMANDER_EDIT_TODAY_ONLY"
 
 
-def test_material_soldier_edit_invalidates_approval(login, reasons):
+@pytest.mark.parametrize("action", ["approve", "correct", "on_behalf"])
+@pytest.mark.parametrize("edit", ["reason", "notes", "same"])
+def test_soldier_cannot_change_commander_report(db, login, reasons, action, edit):
     s = login(SOLDIER_PENDING)
     cmdr = login(TEAM1_CMDR)
     rid = roster_row(cmdr, SOLDIER_PENDING)["report"]["id"]
-    cmdr.post(f"/api/commander/reports/{rid}/approve", {"reason_id": reasons["on_the_way"]["id"]})
+    if action == "on_behalf":
+        response = cmdr.post("/api/commander/reports/on-behalf", {
+            "soldier_id": s.me["id"], "report_date": TODAY().isoformat(),
+            "reason_id": reasons["on_the_way"]["id"], "notes": "commander notes",
+        })
+    else:
+        response = cmdr.post(f"/api/commander/reports/{rid}/approve", {} if action == "approve" else {
+            "reason_id": reasons["on_the_way"]["id"], "notes": "commander notes",
+        })
+    assert response.status_code == 200
+    before = response.json()
+    audit_count = db.scalar(select(func.count()).select_from(ReportAuditEvent))
+    notification_count = db.scalar(select(func.count()).select_from(Notification))
+    r = s.post("/api/my/reports", {
+        "report_date": TODAY().isoformat(),
+        "reason_id": reasons["sick"]["id"] if edit == "reason" else before["soldier_layer"]["reason"]["id"],
+        "notes": "changed notes" if edit == "notes" else before["soldier_layer"]["notes"],
+    })
+    assert r.status_code == 409 and err(r) == "REPORT_LOCKED_BY_COMMANDER"
+    assert roster_row(cmdr, SOLDIER_PENDING)["report"] == before
+    assert db.scalar(select(func.count()).select_from(ReportAuditEvent)) == audit_count
+    assert db.scalar(select(func.count()).select_from(Notification)) == notification_count
+
+
+def test_soldier_cannot_replace_report_created_on_behalf(login, reasons):
+    s = login(SOLDIER)
+    before = login(TEAM1_CMDR).post("/api/commander/reports/on-behalf", {
+        "soldier_id": s.me["id"], "report_date": TODAY().isoformat(), "reason_id": reasons["at_base"]["id"],
+    }).json()
+    assert before["soldier_layer"] is None
     r = s.post("/api/my/reports", {"report_date": TODAY().isoformat(), "reason_id": reasons["sick"]["id"]})
-    body = r.json()
-    assert body["state"] == "pending_approval"
-    assert body["approved_by"] is None and body["commander_layer"] is None
-    # Resubmitting the same values is a no-op and does not invalidate.
-    cmdr.post(f"/api/commander/reports/{rid}/approve", {})
-    same = s.post("/api/my/reports", {"report_date": TODAY().isoformat(), "reason_id": reasons["sick"]["id"]})
-    assert same.json()["state"] == "approved"
+    assert r.status_code == 409 and err(r) == "REPORT_LOCKED_BY_COMMANDER"
+    assert next(r for r in s.get("/api/my/reports").json() if r["id"] == before["id"]) == before
 
 
-def test_send_to_hr_requires_approval(login):
+def test_soldier_can_edit_unapproved_report(login, reasons):
+    s = login(SOLDIER_PENDING)
+    r = s.post("/api/my/reports", {"report_date": TODAY().isoformat(), "reason_id": reasons["sick"]["id"], "notes": "updated"})
+    assert r.status_code == 200
+    assert r.json()["state"] == "pending_approval"
+    assert r.json()["soldier_layer"]["reason"]["code"] == "sick"
+    assert r.json()["soldier_layer"]["notes"] == "updated"
+
+
+@pytest.mark.parametrize("endpoint", ["range", "dates"])
+def test_multi_day_submission_skips_commander_locked_dates(login, reasons, endpoint):
+    s = login(SOLDIER)
+    cmdr = login(TEAM1_CMDR)
+    today = TODAY().isoformat()
+    future = (TODAY() + timedelta(days=1)).isoformat()
+    unlocked = (TODAY() + timedelta(days=2)).isoformat()
+    on_behalf = cmdr.post("/api/commander/reports/on-behalf", {
+        "soldier_id": s.me["id"], "report_date": today, "reason_id": reasons["at_base"]["id"],
+    }).json()
+    scheduled = s.post("/api/my/reports", {"report_date": future, "reason_id": reasons["vacation"]["id"]}).json()
+    approved = cmdr.post(f"/api/commander/reports/{scheduled['id']}/approve", {}).json()
+    body = {"date_from": today, "date_to": unlocked} if endpoint == "range" else {"report_dates": [today, future, unlocked]}
+    result = s.post(f"/api/my/reports/{endpoint}", {**body, "reason_id": reasons["sick"]["id"]})
+    assert result.status_code == 200
+    assert result.json() == {"submitted": [unlocked], "skipped_locked": [today, future]}
+    mine = {r["report_date"]: r for r in s.get("/api/my/reports").json()}
+    assert mine[today] == on_behalf
+    assert mine[future] == approved
+    assert mine[unlocked]["soldier_layer"]["reason"]["code"] == "sick"
+
+
+def test_commander_approval_is_immediately_available_to_hr(login):
     cmdr = login(TEAM1_CMDR)
     rid = roster_row(cmdr, SOLDIER_PENDING)["report"]["id"]
-    assert err(cmdr.post("/api/commander/reports/send-to-hr", {"report_ids": [rid]})) == "REPORT_NOT_APPROVED"
-    cmdr.post(f"/api/commander/reports/{rid}/approve", {})
-    assert cmdr.post("/api/commander/reports/send-to-hr", {"report_ids": [rid]}).json() == {"sent": 1}
+    approved = cmdr.post(f"/api/commander/reports/{rid}/approve", {}).json()
+    assert approved["state"] == "sent_to_hr"
     row = roster_row(login(HR_ONLY), SOLDIER_PENDING, path="/api/hr/roster")
     assert row["report"]["state"] == "sent_to_hr"
+
+
+def test_manual_send_to_hr_endpoint_is_removed(login):
+    response = login(TEAM1_CMDR).post("/api/commander/reports/send-to-hr", {"report_ids": [1]})
+    assert response.status_code == 404
 
 
 # ------------------------------------------------------------------ HR

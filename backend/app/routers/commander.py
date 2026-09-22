@@ -34,10 +34,6 @@ class OnBehalfIn(BaseModel):
     notes: str | None = Field(default=None, max_length=500)
 
 
-class SendToHrIn(BaseModel):
-    report_ids: list[int] = Field(min_length=1, max_length=500)
-
-
 @router.get("/roster")
 def roster(
     report_date: date | None = Query(default=None),
@@ -80,9 +76,3 @@ def on_behalf(body: OnBehalfIn, p: Principal = Depends(require_commander), db: S
     return svc.report_out(
         svc.commander_submit_on_behalf(db, p, body.soldier_id, body.report_date, body.reason_id, body.notes)
     )
-
-
-@router.post("/reports/send-to-hr")
-def send_to_hr(body: SendToHrIn, p: Principal = Depends(require_commander), db: Session = Depends(get_db)) -> dict:
-    sent = svc.commander_send_to_hr(db, p, body.report_ids)
-    return {"sent": len(sent)}

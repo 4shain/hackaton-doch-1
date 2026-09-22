@@ -85,7 +85,6 @@ export const api = {
     d<Report>(http.post(`/api/commander/reports/${reportId}/approve`, body)),
   onBehalf: (body: { soldier_id: number; report_date: string; reason_id: number; notes?: string | null }) =>
     d<Report>(http.post('/api/commander/reports/on-behalf', body)),
-  sendToHr: (report_ids: number[]) => d<{ sent: number }>(http.post('/api/commander/reports/send-to-hr', { report_ids })),
 
   hrRoster: (report_date: string, q?: string) => d<Roster>(http.get('/api/hr/roster', { params: { report_date, q: q || undefined } })),
   hrHistory: (soldierId: number, date_from?: string, date_to?: string) =>

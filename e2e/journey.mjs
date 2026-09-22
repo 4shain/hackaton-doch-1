@@ -102,10 +102,11 @@ const shot = (page, name) => page.screenshot({ path: `${SHOTS}${name}.png`, full
   await page.getByRole('button', { name: 'החיילים שלי' }).click()
   await page.getByText('פירוט חיילים').waitFor()
   await shot(page, '04-commander-mobile')
-  const card = page.locator('.MuiCard-root', { hasText: 'איתי כהן' }).filter({ has: page.getByRole('button', { name: 'אשר דיווח' }) })
+  const itayCard = page.locator('.MuiCard-root', { hasText: 'איתי כהן' })
+  const card = itayCard.filter({ has: page.getByRole('button', { name: 'אשר דיווח' }) })
   await card.getByRole('button', { name: 'אשר דיווח' }).click()
-  await page.getByText('הדיווח של איתי כהן אושר').waitFor()
-  check('commander approved soldier report', true)
+  await page.getByText('הדיווח של איתי כהן אושר והועבר לשלישות').waitFor()
+  check('commander approval automatically sent soldier report to HR', await itayCard.getByText('בשלישות').isVisible())
 
   // Correct another soldier and approve (commander layer).
   const guy = page.locator('.MuiCard-root', { hasText: 'גיא מזרחי' }).filter({ has: page.getByRole('button', { name: 'תקן ואשר' }) })
@@ -114,11 +115,8 @@ const shot = (page, name) => page.screenshot({ path: `${SHOTS}${name}.png`, full
   check('dialog (portal) is RTL', await dlg.evaluate((el) => getComputedStyle(el).direction === 'rtl'))
   await dlg.getByRole('radio', { name: /בדרך ליחידה/ }).click()
   await dlg.getByRole('button', { name: 'עדכון ואישור' }).click()
-  await page.getByText('הדיווח עודכן ואושר').waitFor()
-
-  await page.getByRole('button', { name: /העברת \d+ דיווחים מאושרים לשלישות/ }).click()
-  await page.getByText(/דיווחים הועברו לשלישות/).waitFor()
-  check('commander sent approved reports to HR', true)
+  await page.getByText('הדיווח עודכן, אושר והועבר לשלישות').waitFor()
+  check('manual HR handoff button is absent', (await page.getByRole('button', { name: /לשלישות/ }).count()) === 0)
   await ctx.close()
 }
 {

@@ -7,7 +7,6 @@ import HistoryIcon from '@mui/icons-material/History'
 import PendingActionsIcon from '@mui/icons-material/PendingActions'
 import PersonAddIcon from '@mui/icons-material/PersonAdd'
 import RefreshIcon from '@mui/icons-material/Refresh'
-import SendIcon from '@mui/icons-material/Send'
 import TaskAltIcon from '@mui/icons-material/TaskAlt'
 import { Alert, Box, Button, Card, Chip, IconButton, Stack, TextField, Tooltip, Typography } from '@mui/material'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -23,15 +22,14 @@ import { Distribution } from '../components/Distribution'
 import { fmtDateTime, fmtDayLong, relativeDayLabel } from '../lib/i18n'
 import { tokens } from '../theme'
 
-type Filter = 'all' | 'missing' | 'pending' | 'approved' | 'sent' | 'scheduled'
+type Filter = 'all' | 'missing' | 'pending' | 'sent' | 'scheduled'
 
 const FILTERS: { key: Filter; label: string; match: (r: RosterRow) => boolean }[] = [
   { key: 'all', label: 'הכל', match: () => true },
   { key: 'missing', label: 'חסרי דיווח', match: (r) => !r.report },
   { key: 'pending', label: 'ממתינים לאישור', match: (r) => r.report?.state === 'pending_approval' },
   { key: 'scheduled', label: 'מתוכננים', match: (r) => r.report?.state === 'scheduled' },
-  { key: 'approved', label: 'אושרו', match: (r) => r.report?.state === 'approved' },
-  { key: 'sent', label: 'בשלישות', match: (r) => r.report?.state === 'sent_to_hr' || r.report?.state === 'hr_final' },
+  { key: 'sent', label: 'בשלישות', match: (r) => ['approved', 'sent_to_hr', 'hr_final'].includes(r.report?.state ?? '') },
 ]
 
 export default function SoldiersPage() {
@@ -63,7 +61,6 @@ export default function SoldiersPage() {
   const rows = useMemo(() => roster?.rows ?? [], [roster])
   const counts = useMemo(() => Object.fromEntries(FILTERS.map((f) => [f.key, rows.filter(f.match).length])) as Record<Filter, number>, [rows])
   const visible = rows.filter(FILTERS.find((f) => f.key === filter)!.match)
-  const approvedIds = rows.filter((r) => r.report?.state === 'approved').map((r) => r.report!.id)
   const reported = rows.length - counts.missing
   const isToday = date === today
 
@@ -74,21 +71,11 @@ export default function SoldiersPage() {
     setBusyId(row.soldier.id)
     try {
       replaceRow(row.soldier.id, await api.approve(row.report!.id))
-      toast({ severity: 'success', message: `הדיווח של ${row.soldier.full_name} אושר` })
+      toast({ severity: 'success', message: `הדיווח של ${row.soldier.full_name} אושר והועבר לשלישות` })
     } catch (e) {
       toast({ severity: 'error', message: errorMessage(e) })
     } finally {
       setBusyId(null)
-    }
-  }
-
-  const sendAll = async () => {
-    try {
-      const { sent } = await api.sendToHr(approvedIds)
-      toast({ severity: 'success', message: `${sent} דיווחים הועברו לשלישות` })
-      load()
-    } catch (e) {
-      toast({ severity: 'error', message: errorMessage(e) })
     }
   }
 
@@ -165,13 +152,13 @@ export default function SoldiersPage() {
           selected={filter === 'missing'}
         />
         <MetricCard
-          label="מאושרים להעברה"
-          value={counts.approved}
-          sub={`${counts.sent} כבר בשלישות`}
+          label="בשלישות"
+          value={counts.sent}
+          sub="הועברו או עודכנו"
           tone="success"
           icon={<FactCheckIcon />}
-          onClick={() => setFilter('approved')}
-          selected={filter === 'approved'}
+          onClick={() => setFilter('sent')}
+          selected={filter === 'sent'}
         />
       </Box>
 
@@ -265,25 +252,6 @@ export default function SoldiersPage() {
         </Box>
       )}
 
-      {approvedIds.length > 0 && (
-        <Box
-          sx={{
-            position: 'sticky',
-            bottom: { xs: 80, md: 16 },
-            zIndex: 10,
-            p: 1.25,
-            borderRadius: 4,
-            bgcolor: 'rgba(255,255,255,.85)',
-            backdropFilter: 'blur(12px)',
-            border: '1px solid rgba(0,82,255,.2)',
-          }}
-        >
-          <Button fullWidth variant="contained" size="large" startIcon={<SendIcon />} onClick={sendAll}>
-            העברת {approvedIds.length} דיווחים מאושרים לשלישות
-          </Button>
-        </Box>
-      )}
-
       <ReportFormDialog
         open={!!edit}
         onClose={() => setEdit(null)}
@@ -312,7 +280,7 @@ export default function SoldiersPage() {
               ? await api.onBehalf({ soldier_id: edit.row.soldier.id, report_date: date, ...v })
               : await api.approve(edit.row.report!.id, v)
           replaceRow(edit.row.soldier.id, report)
-          toast({ severity: 'success', message: 'הדיווח עודכן ואושר' })
+          toast({ severity: 'success', message: 'הדיווח עודכן, אושר והועבר לשלישות' })
         }}
       />
 

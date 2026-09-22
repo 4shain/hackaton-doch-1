@@ -32,9 +32,9 @@ class ReportState(str, enum.Enum):
     scheduled = "scheduled"
     # In the commander's approval queue.
     pending_approval = "pending_approval"
-    # Approved by the commander (possibly with commander corrections).
+    # Legacy pre-automatic-handoff state. Migration 0003 moves these rows to sent_to_hr.
     approved = "approved"
-    # Approved and handed off to the unit's HR view ("שליחה לשלישות").
+    # Approved by the commander and automatically available in the unit's HR view.
     sent_to_hr = "sent_to_hr"
     # HR has written its own layer. Only HR may change the report from here on.
     hr_final = "hr_final"

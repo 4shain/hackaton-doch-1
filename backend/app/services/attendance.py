@@ -5,10 +5,11 @@ Effective status = HR value if present, else commander value, else soldier value
 
 Rules (MVP):
   * Soldiers report for today or future dates (future -> `scheduled` until 08:00 on that date).
-  * A material soldier edit (reason or notes changed) of an approved / sent report invalidates the
-    commander approval: commander layer is cleared (kept in the audit log) and the report returns to review.
+  * Reports approved, corrected, or submitted by a commander are locked to soldier edits
+    (REPORT_LOCKED_BY_COMMANDER). Multi-day submissions skip locked dates.
   * Commanders act on direct reports only. They may write the commander layer for *today*,
-    approve today's/future reports as-is, and view history. Historical edits are HR-only.
+    approve today's/future reports as-is, and view history. Approval immediately makes the report
+    available to HR; there is no separate handoff or HR approval. Historical edits are HR-only.
   * Once HR writes its layer the report is `hr_final`: soldier and commander edits are refused
     (REPORT_LOCKED_BY_HR); only HR may change it further.
   * A missing report is never an absence; it is reported as "missing".
@@ -120,15 +121,10 @@ def _new_report(db: Session, soldier_id: int, report_date: date, created_by: int
     return r
 
 
-def _clear_approval(r: AttendanceReport) -> None:
-    r.commander_reason_id = None
-    r.commander_notes = None
-    r.commander_reported_by_id = None
-    r.commander_reported_at = None
-    r.approved_by_id = None
-    r.approved_at = None
-    r.sent_to_hr_at = None
-    r.sent_to_hr_by_id = None
+def _soldier_lock_check(r: AttendanceReport) -> None:
+    _lock_check(r)
+    if r.state in (ReportState.approved, ReportState.sent_to_hr) or r.commander_reason_id is not None:
+        raise AppError("REPORT_LOCKED_BY_COMMANDER", 409)
 
 
 def _lock_check(r: AttendanceReport) -> None:
@@ -157,15 +153,11 @@ def soldier_submit(db: Session, p: Principal, report_date: date, reason_id: int,
         before = {}
         action = "soldier_submitted"
     else:
-        _lock_check(r)
+        _soldier_lock_check(r)
         if r.soldier_reason_id == reason.id and r.soldier_notes == notes:
             return r  # nothing changed
         before = _snapshot(r)
         action = "soldier_updated"
-        # Material edit: any previous approval (or commander correction) is invalidated.
-        if r.state in (ReportState.approved, ReportState.sent_to_hr) or r.commander_reason_id is not None:
-            _clear_approval(r)
-            action = "soldier_updated_approval_invalidated"
         r.state = _state_for_new_submission(report_date)
 
     r.soldier_reason_id = reason.id
@@ -212,11 +204,13 @@ def soldier_submit_dates(
 
     submitted, skipped = [], []
     for report_date in dates:
-        existing = find_report(db, p.id, report_date)
-        if existing is not None and existing.state == ReportState.hr_final:
+        try:
+            soldier_submit(db, p, report_date, reason_id, notes)
+        except AppError as exc:
+            if exc.code not in ("REPORT_LOCKED_BY_HR", "REPORT_LOCKED_BY_COMMANDER"):
+                raise
             skipped.append(report_date.isoformat())
         else:
-            soldier_submit(db, p, report_date, reason_id, notes)
             submitted.append(report_date.isoformat())
     return {"submitted": submitted, "skipped_locked": skipped}
 
@@ -227,7 +221,7 @@ def soldier_submit_range(
     """Report the same status for every day in [date_from, date_to].
 
     Everything is validated up front, so no day is written if the input is invalid.
-    Days already finalised by HR are skipped (never overwritten) and returned separately.
+    Days already locked by a commander or HR are skipped (never overwritten) and returned separately.
     """
     if date_to < date_from:
         raise AppError("INVALID_DATE_RANGE", 422)
@@ -246,7 +240,7 @@ def commander_approve(
     require_commander_of(p, r.soldier_id)
     _lock_check(r)
     if r.state == ReportState.sent_to_hr and reason_id is None:
-        raise AppError("ALREADY_SENT_TO_HR", 409)
+        return r
 
     before = _snapshot(r)
     now = utcnow()
@@ -260,12 +254,12 @@ def commander_approve(
         r.commander_reported_by_id = p.id
         r.commander_reported_at = now
         action = "commander_corrected_and_approved"
-        r.sent_to_hr_at = None  # a corrected report must be handed off again
-        r.sent_to_hr_by_id = None
 
     r.approved_by_id = p.id
     r.approved_at = now
-    r.state = ReportState.approved
+    r.sent_to_hr_at = now
+    r.sent_to_hr_by_id = p.id
+    r.state = ReportState.sent_to_hr
     db.flush()
     _audit(db, r, p.id, "commander", action, before)
     notify(
@@ -291,7 +285,7 @@ def commander_submit_on_behalf(
     r = find_report(db, soldier_id, report_date)
     now = utcnow()
     if r is None:
-        r = _new_report(db, soldier_id, report_date, p.id, ReportState.approved)
+        r = _new_report(db, soldier_id, report_date, p.id, ReportState.sent_to_hr)
         before: dict = {}
     else:
         _lock_check(r)
@@ -302,36 +296,14 @@ def commander_submit_on_behalf(
     r.commander_reported_at = now
     r.approved_by_id = p.id
     r.approved_at = now
-    r.sent_to_hr_at = None
-    r.sent_to_hr_by_id = None
-    r.state = ReportState.approved
+    r.sent_to_hr_at = now
+    r.sent_to_hr_by_id = p.id
+    r.state = ReportState.sent_to_hr
     db.flush()
     _audit(db, r, p.id, "commander", "commander_reported_on_behalf", before)
     notify(db, soldier_id, "report_on_behalf", "המפקד דיווח עבורך", f"{reason.label} · {report_date.strftime('%d/%m/%Y')}")
     db.commit()
     return get_report(db, r.id)
-
-
-def commander_send_to_hr(db: Session, p: Principal, report_ids: list[int]) -> list[AttendanceReport]:
-    """Hand approved reports off to the unit HR view ("שליחה לשלישות"). Local workflow only."""
-    if not report_ids:
-        raise AppError("NOTHING_TO_SEND", 422)
-    now = utcnow()
-    sent = []
-    for rid in report_ids:
-        r = get_report(db, rid)
-        require_commander_of(p, r.soldier_id)
-        if r.state != ReportState.approved:
-            raise AppError("REPORT_NOT_APPROVED", 409, details={"report_id": rid})
-        before = _snapshot(r)
-        r.state = ReportState.sent_to_hr
-        r.sent_to_hr_at = now
-        r.sent_to_hr_by_id = p.id
-        db.flush()
-        _audit(db, r, p.id, "commander", "sent_to_hr", before)
-        sent.append(r)
-    db.commit()
-    return sent
 
 
 # ---------------------------------------------------------------- HR
