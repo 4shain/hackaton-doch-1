@@ -29,6 +29,8 @@ Every soldier is a soldier, and a soldier being a commander or an HR is independ
 3. an HR (also a soldier), e.g. a soldier in the HR office;
 4. an HR and a commander, e.g. the commander of the HR office.
 
+A soldier has the role of a commander if it is defined as the commander of another soldier. A soldier has the roler of an HR if it is defined as an HR of their unit.
+
 ### Attendence Report
 Each day every soldier can submit an attedence report, or their commander or unit's HR can submit on their behalf.
 
