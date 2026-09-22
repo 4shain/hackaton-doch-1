@@ -103,6 +103,34 @@ export interface Roster {
   unit?: { id: number; name: string }
 }
 
+export type AnomalySignal = 'notes_mismatch' | 'layer_conflict' | 'absence_pattern'
+
+export interface AnomalyRun {
+  run_date: string
+  window_from: string
+  window_to: string
+  trigger: 'nightly' | 'manual'
+  finished_at: string
+  checked: number
+  flagged: number
+  failed: number
+  cost_usd: number
+}
+
+export interface Anomaly {
+  soldier: Soldier
+  score: number
+  severity: number
+  signals: AnomalySignal[]
+  facts: string[]
+}
+
+export interface Anomalies {
+  configured: boolean
+  run: AnomalyRun | null
+  items: Anomaly[]
+}
+
 export interface SoldierHistory {
   soldier: Soldier
   reports: Report[]

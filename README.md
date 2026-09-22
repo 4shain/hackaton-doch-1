@@ -216,7 +216,7 @@ To run it by hand: `python -m app.cli run-daily-job --date YYYY-MM-DD`. It is no
 
 ## Verification
 
-- `cd backend && uv run pytest` runs 32 API/domain tests against a real PostGIS database (`doch1_test`). Create it once with `docker compose exec db psql -U doch1 -c "CREATE DATABASE doch1_test"`. They cover:
+- `cd backend && uv run pytest` runs 36 API/domain tests against a real PostGIS database (`doch1_test`). Create it once with `docker compose exec db psql -U doch1 -c "CREATE DATABASE doch1_test"`. They cover:
   - auth boundaries and client role claims being ignored;
   - all four role combinations, and combined roles keeping both scopes;
   - commander and HR scopes;
@@ -229,8 +229,34 @@ To run it by hand: `python -m app.cli run-daily-job --date YYYY-MM-DD`. It is no
   - recursive check-in recipients and snapshotting, response isolation, closing, mid-level commander subtree status and re-send;
   - multi-day reporting (all days written, HR-locked days skipped, validation before any write);
   - the idempotent 08:00 job;
-  - unit cycle prevention.
+  - unit cycle prevention;
+  - the nightly anomaly scan (Jev is faked in tests): idempotency, HR unit scoping, missing API key.
 - `cd e2e && npm i && npx playwright install chromium && node journey.mjs` runs a browser journey with 43 checks against the running app (reseed first). It covers soldier → commander → HR, the ירוק בעיניים round trip, RTL on the document and on portal dialogs, and no horizontal overflow at 390px and 1366px. Screenshots are saved to `e2e/screens/`.
+
+## Nightly anomaly scan (Jev)
+
+Every night at **02:00 Asia/Jerusalem** (`ANOMALY_JOB_HOUR`), the in-process scheduler sends each active soldier's last **20 days** (`ANOMALY_LOOKBACK_DAYS`, ending yesterday) to [Jev](https://typesafe.ai), TypeSafe's "System One" classification model. Code: `backend/app/services/anomaly.py`.
+
+- **Input ("state"), one request per soldier.** A day-by-day timeline with the soldier, commander and HR layers and all free-text notes, plus facts computed in code (days reported, missing, absent, sick days next to a weekend, layer disagreements). Jev is documented as weak at counting and dates, so the code counts for it.
+- **Questions, answered in parallel in the same call.** Three yes/no probabilities (notes contradict the status, soldier vs. commander conflict, suspicious absence pattern) and a severity score from 0 to 3. A soldier is flagged when the strongest signal is ≥ `ANOMALY_THRESHOLD` (0.75). Jev's generic "is anything weird?" probability sat at ≥0.72 for every soldier, so it isn't used.
+- **Storage.** Only flagged soldiers are stored (`soldier_anomalies`), per run (`anomaly_runs`: tokens, counts, cost). There is at most one nightly run per date (partial unique index).
+- **HR page.** The "חריגות בדיווחים" card lists the unit's flagged soldiers from the latest run, with severity, signals, facts and a link to the history calendar. "סריקה עכשיו" rescans the HR user's unit on demand.
+- **CLI.** `uv run python -m app.cli run-anomaly-scan [--date YYYY-MM-DD] [--unit ID]`.
+- **Config.** `TYPESAFE_API_KEY` (the scan is off without it), `JEV_MODEL` (pinned `jev-1.13.0`) and `ANOMALY_CONCURRENCY` (16).
+- **Seed.** The seed plants two anomalies: דניאל אברג׳יל (sick every Thursday/Sunday, plus "at base" with a note saying he was home) and אלון דהן (reports "at base" while his commander says he never showed up).
+
+### Cost at 100,000 soldiers
+
+Jev bills **input tokens only**: $0.042 per 1M tokens, and output is free. The measured average on the seeded data is **~1,170 input tokens per soldier** (20 Hebrew day lines, notes, facts and the 4 questions).
+
+| | per night | per month (30 nights) |
+|---|---|---|
+| Tokens (100k × 1,170) | 117M | 3.5B |
+| **Cost** | **≈ $4.90** | **≈ $150** |
+| Pessimistic: long notes, ~2,000 tokens/soldier | ≈ $8.40 | ≈ $250 |
+
+- **Time.** The API limit is 1,200 requests/min (the 250k tokens/s limit is not the bottleneck), so 100k soldiers take ≥ 83 min, and about 1.5–2 h at the default concurrency. That fits between 02:00 and the 08:00 job.
+- **Easy savings.** Skip soldiers whose 20 days are all "נוכח בבסיס" with no notes and no disagreements (typically the majority). Soldiers with zero reports can be flagged in code without calling Jev.
 
 ## Follow-ups (deliberately not built)
 

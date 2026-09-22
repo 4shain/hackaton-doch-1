@@ -19,6 +19,16 @@ class Settings(BaseSettings):
     # How far ahead soldiers may schedule future reports.
     max_future_days: int = 60
 
+    # Nightly anomaly scan (TypeSafe "Jev" model). Disabled when no API key is set.
+    typesafe_api_key: str | None = None
+    jev_model: str = "jev-1.13.0"
+    anomaly_job_hour: int = 2
+    anomaly_lookback_days: int = 20
+    # A soldier is flagged when the strongest Jev signal probability reaches this.
+    anomaly_threshold: float = 0.75
+    # Parallel Jev requests. The API allows 1,200 requests/min.
+    anomaly_concurrency: int = 16
+
     # Placeholders for a real SSO provider (OIDC). Not implemented in the MVP.
     sso_issuer_url: str | None = None
     sso_client_id: str | None = None
@@ -31,6 +41,10 @@ class Settings(BaseSettings):
     @property
     def demo_login_active(self) -> bool:
         return self.app_env == "development" and self.dev_login_enabled
+
+    @property
+    def anomaly_scan_configured(self) -> bool:
+        return bool(self.typesafe_api_key)
 
     @property
     def sso_configured(self) -> bool:
