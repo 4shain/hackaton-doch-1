@@ -145,7 +145,7 @@ def respond(db: Session, p: Principal, request_id: int, location_text: str) -> C
             "checkin_response",
             f"ירוק בעיניים: {p.user.full_name} השיב/ה",
             location_text,
-            link=f"/checkins?request={request_id}",
+            link="/soldiers",
         )
     db.commit()
     return resp

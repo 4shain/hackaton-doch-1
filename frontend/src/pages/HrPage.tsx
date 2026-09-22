@@ -1,14 +1,18 @@
 import DownloadIcon from '@mui/icons-material/Download'
 import EditIcon from '@mui/icons-material/Edit'
+import ExpandLessIcon from '@mui/icons-material/ExpandLess'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import HistoryIcon from '@mui/icons-material/History'
 import ManageSearchIcon from '@mui/icons-material/ManageSearch'
 import SearchIcon from '@mui/icons-material/Search'
+import TuneIcon from '@mui/icons-material/Tune'
 import {
   Alert,
   Box,
   Button,
   Card,
   Chip,
+  Collapse,
   IconButton,
   InputAdornment,
   Stack,
@@ -34,15 +38,17 @@ import { accentFor, Empty, ErrorState, Loading, MetricCard, SectionTitle, StateC
 import { AuditDialog, ReportFormDialog } from '../components/dialogs'
 import { CalendarDialog } from '../components/MonthCalendar'
 import { Distribution } from '../components/Distribution'
-import { addDays, fmtDay, fmtDayLong, SOURCE_LABEL } from '../lib/i18n'
+import { addDays, fmtDay, SOURCE_LABEL } from '../lib/i18n'
 
-type Filter = 'all' | 'handed' | 'pending' | 'missing' | 'hr'
+// Default view: only soldiers who still need something (no report, or a report not approved yet).
+// Approved soldiers are reached via "הכל" or by searching.
+type Filter = 'open' | 'missing' | 'unapproved' | 'all'
+const unapproved = (r: RosterRow) => ['scheduled', 'pending_approval'].includes(r.report?.state ?? '')
 const FILTERS: { key: Filter; label: string; match: (r: RosterRow) => boolean }[] = [
+  { key: 'open', label: 'דורשים טיפול', match: (r) => !r.report || unapproved(r) },
+  { key: 'missing', label: 'טרם דיווחו', match: (r) => !r.report },
+  { key: 'unapproved', label: 'טרם אושרו', match: unapproved },
   { key: 'all', label: 'הכל', match: () => true },
-  { key: 'handed', label: 'הועברו ע״י מפקד', match: (r) => r.report?.state === 'sent_to_hr' },
-  { key: 'pending', label: 'טרם הועברו', match: (r) => ['scheduled', 'pending_approval', 'approved'].includes(r.report?.state ?? '') },
-  { key: 'missing', label: 'חסרי דיווח', match: (r) => !r.report },
-  { key: 'hr', label: 'עודכנו ע״י שלישות', match: (r) => r.report?.state === 'hr_final' },
 ]
 
 export default function HrPage() {
@@ -56,7 +62,8 @@ export default function HrPage() {
   const [query, setQuery] = useState('')
   const [roster, setRoster] = useState<Roster | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [filter, setFilter] = useState<Filter>('all')
+  const [filter, setFilter] = useState<Filter>('open')
+  const [advanced, setAdvanced] = useState(false)
   const [editing, setEditing] = useState<{ soldierId: number; name: string; date: string; report: Report | null } | null>(null)
   const [historyFor, setHistoryFor] = useState<RosterRow | null>(null)
   const [auditFor, setAuditFor] = useState<number | null>(null)
@@ -78,7 +85,9 @@ export default function HrPage() {
 
   const rows = useMemo(() => roster?.rows ?? [], [roster])
   const counts = useMemo(() => Object.fromEntries(FILTERS.map((f) => [f.key, rows.filter(f.match).length])) as Record<Filter, number>, [rows])
-  const visible = rows.filter(FILTERS.find((f) => f.key === filter)!.match)
+  // A search looks through everyone, including soldiers whose report is already approved.
+  const activeFilter: Filter = query ? 'all' : filter
+  const visible = rows.filter(FILTERS.find((f) => f.key === activeFilter)!.match)
 
   const doExport = async () => {
     if (exportTo < exportFrom) {
@@ -151,14 +160,9 @@ export default function HrPage() {
     <Stack spacing={2}>
       <Card sx={{ p: 2 }}>
         <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={1.5}>
-          <Box>
-            <Typography variant="h3" component="h2">
-              ניהול שלישות – {roster?.unit?.name ?? ''}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {fmtDayLong(date)} · עדכוני שלישות נשמרים בשדה נפרד ואינם מוחקים את דיווחי החייל והמפקד
-            </Typography>
-          </Box>
+          <Typography variant="h3" component="h2">
+            ניהול שלישות – {roster?.unit?.name ?? ''}
+          </Typography>
           <Stack direction="row" spacing={1}>
             <TextField
               type="date"
@@ -188,11 +192,9 @@ export default function HrPage() {
         <Loading />
       ) : (
         <>
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(4, 1fr)' }, gap: 1.5 }}>
-            <MetricCard label="הועברו ע״י מפקדים" value={counts.handed} tone="primary" onClick={() => setFilter('handed')} selected={filter === 'handed'} />
-            <MetricCard label="טרם הועברו" value={counts.pending} tone="warning" onClick={() => setFilter('pending')} selected={filter === 'pending'} />
-            <MetricCard label="חסרי דיווח" value={counts.missing} tone="danger" onClick={() => setFilter('missing')} selected={filter === 'missing'} />
-            <MetricCard label="עודכנו ע״י שלישות" value={counts.hr} tone="neutral" onClick={() => setFilter('hr')} selected={filter === 'hr'} />
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
+            <MetricCard label="טרם דיווחו" value={counts.missing} tone="danger" onClick={() => setFilter('missing')} selected={activeFilter === 'missing'} />
+            <MetricCard label="טרם אושרו" value={counts.unapproved} tone="warning" onClick={() => setFilter('unapproved')} selected={activeFilter === 'unapproved'} />
           </Box>
 
           <Stack direction="row" spacing={1} sx={{ overflowX: 'auto', pb: 0.5 }} role="toolbar" aria-label="סינון">
@@ -201,17 +203,20 @@ export default function HrPage() {
                 key={f.key}
                 label={`${f.label} (${counts[f.key]})`}
                 onClick={() => setFilter(f.key)}
-                color={filter === f.key ? 'primary' : 'default'}
-                variant={filter === f.key ? 'filled' : 'outlined'}
-                aria-pressed={filter === f.key}
-                sx={{ flexShrink: 0, height: 34, bgcolor: filter === f.key ? undefined : '#fff' }}
+                color={activeFilter === f.key ? 'primary' : 'default'}
+                variant={activeFilter === f.key ? 'filled' : 'outlined'}
+                aria-pressed={activeFilter === f.key}
+                sx={{ flexShrink: 0, height: 34, bgcolor: activeFilter === f.key ? undefined : '#fff' }}
               />
             ))}
           </Stack>
 
           {visible.length === 0 ? (
             <Card>
-              <Empty title="אין חיילים להצגה" subtitle={query ? 'נסו חיפוש אחר' : undefined} />
+              <Empty
+                title={activeFilter === 'open' ? 'כל החיילים דיווחו והדיווחים אושרו 🎉' : 'אין חיילים להצגה'}
+                subtitle={query ? 'נסו חיפוש אחר' : activeFilter === 'open' ? 'לצפייה בכולם בחרו "הכל" או חפשו לפי מספר אישי' : undefined}
+              />
             </Card>
           ) : desktop ? (
             <TableContainer component={Card}>
@@ -292,21 +297,36 @@ export default function HrPage() {
         </>
       )}
 
-      <AnomaliesCard onOpenHistory={(soldier) => setHistoryFor({ soldier, report: null })} />
+      <Button
+        variant="outlined"
+        startIcon={<TuneIcon />}
+        endIcon={advanced ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+        onClick={() => setAdvanced((v) => !v)}
+        aria-expanded={advanced}
+        sx={{ alignSelf: 'flex-start', bgcolor: '#fff' }}
+      >
+        אפשרויות מתקדמות
+      </Button>
 
-      <SectionTitle>ייצוא היסטוריה ל-CSV</SectionTitle>
-      <Card sx={{ p: 2 }}>
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }}>
-          <TextField type="date" size="small" label="מתאריך" value={exportFrom} onChange={(e) => setExportFrom(e.target.value)} slotProps={{ inputLabel: { shrink: true } }} />
-          <TextField type="date" size="small" label="עד תאריך" value={exportTo} onChange={(e) => setExportTo(e.target.value)} slotProps={{ inputLabel: { shrink: true } }} />
-          <Button variant="contained" startIcon={<DownloadIcon />} onClick={doExport} disabled={exporting} sx={{ flexShrink: 0 }}>
-            {exporting ? 'מייצא…' : 'ייצוא CSV'}
-          </Button>
+      <Collapse in={advanced} unmountOnExit>
+        <Stack spacing={2}>
+          <AnomaliesCard onOpenHistory={(soldier) => setHistoryFor({ soldier, report: null })} />
+
+          <SectionTitle>ייצוא היסטוריה ל-CSV</SectionTitle>
+          <Card sx={{ p: 2 }}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }}>
+              <TextField type="date" size="small" label="מתאריך" value={exportFrom} onChange={(e) => setExportFrom(e.target.value)} slotProps={{ inputLabel: { shrink: true } }} />
+              <TextField type="date" size="small" label="עד תאריך" value={exportTo} onChange={(e) => setExportTo(e.target.value)} slotProps={{ inputLabel: { shrink: true } }} />
+              <Button variant="contained" startIcon={<DownloadIcon />} onClick={doExport} disabled={exporting} sx={{ flexShrink: 0 }}>
+                {exporting ? 'מייצא…' : 'ייצוא CSV'}
+              </Button>
+            </Stack>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              הקובץ כולל את כל חיילי היחידה בטווח (כולל ימים ללא דיווח), בעברית ובקידוד המתאים ל-Excel.
+            </Typography>
+          </Card>
         </Stack>
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-          הקובץ כולל את כל חיילי היחידה בטווח (כולל ימים ללא דיווח), בעברית ובקידוד המתאים ל-Excel.
-        </Typography>
-      </Card>
+      </Collapse>
 
       <ReportFormDialog
         open={!!editing}

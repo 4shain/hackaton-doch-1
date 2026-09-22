@@ -1,25 +1,19 @@
-import AssignmentLateIcon from '@mui/icons-material/AssignmentLate'
-import CalendarTodayIcon from '@mui/icons-material/CalendarToday'
 import CheckIcon from '@mui/icons-material/Check'
 import EditNoteIcon from '@mui/icons-material/EditNote'
-import FactCheckIcon from '@mui/icons-material/FactCheck'
 import HistoryIcon from '@mui/icons-material/History'
-import PendingActionsIcon from '@mui/icons-material/PendingActions'
 import PersonAddIcon from '@mui/icons-material/PersonAdd'
-import RefreshIcon from '@mui/icons-material/Refresh'
-import TaskAltIcon from '@mui/icons-material/TaskAlt'
-import { Alert, Box, Button, Card, Chip, IconButton, Stack, TextField, Tooltip, Typography } from '@mui/material'
+import { Alert, Box, Button, Card, Chip, IconButton, Stack, Tooltip, Typography } from '@mui/material'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { CheckinStatusCard } from '../components/CheckinStatusCard'
 import { api, errorMessage } from '../api/client'
 import type { Roster, RosterRow } from '../api/types'
 import { useSession } from '../auth'
 import { useToast } from '../components/AppShell'
-import { accentFor, Empty, ErrorState, Loading, MetricCard, PersonAvatar, SectionTitle, StateChip, StatusChip } from '../components/common'
+import { accentFor, Empty, ErrorState, Loading, PersonAvatar, SectionTitle, StateChip, StatusChip } from '../components/common'
 import { ReportFormDialog } from '../components/dialogs'
 import { CalendarDialog } from '../components/MonthCalendar'
-import { Distribution } from '../components/Distribution'
-import { fmtDateTime, fmtDayLong, relativeDayLabel } from '../lib/i18n'
+import { fmtDayLong } from '../lib/i18n'
 import { tokens } from '../theme'
 
 type Filter = 'all' | 'missing' | 'pending' | 'sent' | 'scheduled'
@@ -36,7 +30,7 @@ export default function SoldiersPage() {
   const { meta } = useSession()
   const toast = useToast()
   const today = meta.today
-  const [params, setParams] = useSearchParams()
+  const [params] = useSearchParams()
   const date = params.get('date') ?? today
   const [roster, setRoster] = useState<Roster | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -44,24 +38,16 @@ export default function SoldiersPage() {
   const [busyId, setBusyId] = useState<number | null>(null)
   const [edit, setEdit] = useState<{ row: RosterRow; mode: 'correct' | 'behalf' } | null>(null)
   const [historyRow, setHistoryRow] = useState<RosterRow | null>(null)
-  const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
 
   const load = useCallback(() => {
     setError(null)
-    api.commanderRoster(date).then(
-      (r) => {
-        setRoster(r)
-        setUpdatedAt(new Date())
-      },
-      (e) => setError(errorMessage(e)),
-    )
+    api.commanderRoster(date).then(setRoster, (e) => setError(errorMessage(e)))
   }, [date])
   useEffect(load, [load])
 
   const rows = useMemo(() => roster?.rows ?? [], [roster])
   const counts = useMemo(() => Object.fromEntries(FILTERS.map((f) => [f.key, rows.filter(f.match).length])) as Record<Filter, number>, [rows])
   const visible = rows.filter(FILTERS.find((f) => f.key === filter)!.match)
-  const reported = rows.length - counts.missing
   const isToday = date === today
 
   const replaceRow = (soldierId: number, report: RosterRow['report']) =>
@@ -84,87 +70,9 @@ export default function SoldiersPage() {
 
   return (
     <Stack spacing={2}>
-      <Card sx={{ p: 2 }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" useFlexGap spacing={1.5}>
-          <Stack direction="row" spacing={1.25} alignItems="center">
-            <CalendarTodayIcon sx={{ color: tokens.primary }} />
-            <Box>
-              <Typography variant="h3" component="h2">
-                {relativeDayLabel(date, today) ? `${relativeDayLabel(date, today)}, ` : ''}
-                {fmtDayLong(date)}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {rows.length} חיילים בפיקודך הישיר · עודכן {updatedAt && fmtDateTime(updatedAt.toISOString())}
-              </Typography>
-            </Box>
-          </Stack>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <TextField
-              type="date"
-              size="small"
-              label="תאריך"
-              value={date}
-              onChange={(e) => e.target.value && setParams(e.target.value === today ? {} : { date: e.target.value })}
-              sx={{ width: 170 }}
-              slotProps={{ inputLabel: { shrink: true } }}
-            />
-            <Tooltip title="רענון">
-              <IconButton aria-label="רענון" onClick={load}>
-                <RefreshIcon />
-              </IconButton>
-            </Tooltip>
-          </Stack>
-        </Stack>
-        {!isToday && (
-          <Alert severity="info" sx={{ mt: 1.5 }}>
-            {date < today
-              ? 'תצוגה היסטורית: ניתן לצפות ולאשר, אך שינוי סטטוס היסטורי מתבצע ע״י השלישות.'
-              : 'תאריך עתידי: ניתן לצפות ולאשר דיווחים מתוכננים. עדכון סטטוס ע״י מפקד אפשרי ביום הדיווח.'}
-          </Alert>
-        )}
-      </Card>
+      <CheckinStatusCard />
 
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(4, 1fr)' }, gap: 1.5 }}>
-        <MetricCard
-          label="שיעור דיווח"
-          value={rows.length ? `${Math.round((reported / rows.length) * 100)}%` : '—'}
-          sub={`${reported} / ${rows.length} דיווחו`}
-          icon={<TaskAltIcon />}
-          onClick={() => setFilter('all')}
-          selected={filter === 'all'}
-        />
-        <MetricCard
-          label="ממתינים לאישור"
-          value={counts.pending}
-          sub="חיילים"
-          tone="warning"
-          icon={<PendingActionsIcon />}
-          onClick={() => setFilter('pending')}
-          selected={filter === 'pending'}
-        />
-        <MetricCard
-          label="טרם דיווחו"
-          value={counts.missing}
-          sub="חסרי דיווח"
-          tone="danger"
-          icon={<AssignmentLateIcon />}
-          onClick={() => setFilter('missing')}
-          selected={filter === 'missing'}
-        />
-        <MetricCard
-          label="בשלישות"
-          value={counts.sent}
-          sub="הועברו או עודכנו"
-          tone="success"
-          icon={<FactCheckIcon />}
-          onClick={() => setFilter('sent')}
-          selected={filter === 'sent'}
-        />
-      </Box>
-
-      <Distribution rows={rows} />
-
-      <SectionTitle>פירוט חיילים</SectionTitle>
+      <SectionTitle>פירוט חיילים{isToday ? '' : ` – ${fmtDayLong(date)}`}</SectionTitle>
       <Stack direction="row" spacing={1} sx={{ overflowX: 'auto', pb: 0.5 }} role="toolbar" aria-label="סינון לפי מצב">
         {FILTERS.map((f) => (
           <Chip

@@ -16,8 +16,9 @@ class Settings(BaseSettings):
     timezone: str = "Asia/Jerusalem"
     daily_job_hour: int = 8
     scheduler_enabled: bool = True
-    # How far ahead soldiers may schedule future reports.
-    max_future_days: int = 60
+    # How far ahead soldiers may schedule future reports (HR may set further ahead).
+    max_future_days: int = 7
+    hr_max_future_days: int = 60
 
     # Nightly anomaly scan (TypeSafe "Jev" model). Disabled when no API key is set.
     typesafe_api_key: str | None = None

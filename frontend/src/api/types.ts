@@ -49,6 +49,8 @@ export interface Meta {
   today: string
   now: string
   timezone: string
+  /** Soldiers may report at most this many days ahead. */
+  max_future_days: number
   reasons: Reason[]
 }
 

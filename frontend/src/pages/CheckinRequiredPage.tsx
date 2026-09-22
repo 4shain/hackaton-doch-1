@@ -50,7 +50,7 @@ export default function CheckinRequiredPage({ pending, onAnswered }: { pending: 
       // "Where are you now?" has one answer: send it to every open request at once.
       for (const p of pending) await api.checkinRespond(p.request.id, text.trim())
       // Commanders continue to the status of their own subordinates for this request.
-      if (me.capabilities.commander) nav(`/checkins?from=${item.request.id}`, { replace: true })
+      if (me.capabilities.commander) nav('/soldiers', { replace: true })
       await onAnswered()
     } catch (e) {
       setError(errorMessage(e))

@@ -311,7 +311,7 @@ def commander_submit_on_behalf(
 def hr_set(db: Session, p: Principal, soldier_id: int, report_date: date, reason_id: int, notes: str | None) -> AttendanceReport:
     """HR writes its own layer (current or historical). Creates the report if missing (on behalf)."""
     require_hr_of(db, p, soldier_id)
-    if report_date > local_today() + timedelta(days=get_settings().max_future_days):
+    if report_date > local_today() + timedelta(days=get_settings().hr_max_future_days):
         raise AppError("DATE_TOO_FAR", 422)
     reason, notes = validate_reason_and_notes(db, reason_id, notes)
     r = find_report(db, soldier_id, report_date)

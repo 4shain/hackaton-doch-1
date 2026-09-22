@@ -494,7 +494,7 @@ def test_range_report_validates_before_writing(db, login, reasons):
 
 def test_selected_dates_report_only_updates_the_chosen_days(db, login, reasons):
     s = login(SOLDIER)
-    start = TODAY() + timedelta(days=20)
+    start = TODAY() + timedelta(days=3)
     chosen = [start, start + timedelta(days=2), start + timedelta(days=4)]
     # A selected HR-final day is skipped while the other selected days are saved.
     login(HR_ONLY).post(
@@ -514,3 +514,12 @@ def test_selected_dates_report_only_updates_the_chosen_days(db, login, reasons):
     assert mine[chosen[0].isoformat()]["effective"]["reason"]["code"] == "vacation"
     assert mine[chosen[1].isoformat()]["effective"]["reason"]["code"] == "at_base"
     assert (start + timedelta(days=1)).isoformat() not in mine
+
+
+def test_soldier_can_report_at_most_a_week_ahead(login, reasons):
+    s = login(SOLDIER)
+    week = (TODAY() + timedelta(days=7)).isoformat()
+    beyond = (TODAY() + timedelta(days=8)).isoformat()
+    assert s.post("/api/my/reports", {"report_date": week, "reason_id": reasons["vacation"]["id"]}).status_code == 200
+    assert err(s.post("/api/my/reports", {"report_date": beyond, "reason_id": reasons["vacation"]["id"]})) == "DATE_TOO_FAR"
+    assert err(s.post("/api/my/reports/dates", {"report_dates": [week, beyond], "reason_id": reasons["vacation"]["id"]})) == "DATE_TOO_FAR"

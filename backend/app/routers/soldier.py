@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth import get_principal
+from app.config import get_settings
 from app.db import get_db
 from app.models import AttendanceReason
 from app.services import attendance as svc
@@ -41,6 +42,7 @@ def meta(db: Session = Depends(get_db)) -> dict:
         "today": local_today().isoformat(),
         "now": local_now().isoformat(),
         "timezone": "Asia/Jerusalem",
+        "max_future_days": get_settings().max_future_days,
         "reasons": [
             {
                 "id": r.id,

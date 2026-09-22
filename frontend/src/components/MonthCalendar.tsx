@@ -1,6 +1,6 @@
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
-import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline'
+import CheckIcon from '@mui/icons-material/Check'
 import HourglassTopIcon from '@mui/icons-material/HourglassTop'
 import LockIcon from '@mui/icons-material/Lock'
 import { Box, Button, ButtonBase, Card, IconButton, LinearProgress, Stack, Tooltip, Typography } from '@mui/material'
@@ -9,24 +9,25 @@ import { errorMessage } from '../api/client'
 import type { Report } from '../api/types'
 import { addMonths, fmtDayLong, fmtMonth, monthOf, monthRange, parseDay, STATE_LABEL } from '../lib/i18n'
 import { tokens } from '../theme'
-import { ErrorState, Pill, ReasonIcon } from './common'
+import { ErrorState, Pill } from './common'
 import { AppDialog, LayersView } from './dialogs'
 
 const WEEKDAYS = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳']
 
-type Kind = 'present' | 'absent' | 'missing' | 'empty'
+// Two statuses only: present, or not present (any absence, or a past day with no report).
+// The reason is shown only in the day details below the grid, to keep the month readable.
+type Kind = 'present' | 'absent' | 'empty'
 
 function kindOf(report: Report | undefined, date: string, today: string): Kind {
   const reason = report?.effective.reason
   if (reason) return reason.is_present ? 'present' : 'absent'
-  return date < today ? 'missing' : 'empty'
+  return date < today ? 'absent' : 'empty'
 }
 
-const KIND_STYLE: Record<Kind, { bg: string; border: string; fg: string }> = {
-  present: { bg: tokens.successSoft, border: '#a7f3d0', fg: tokens.success },
-  absent: { bg: tokens.warningSoft, border: '#fde68a', fg: tokens.warning },
-  missing: { bg: tokens.dangerSoft, border: '#fecaca', fg: tokens.danger },
-  empty: { bg: '#fff', border: '#e2e8f0', fg: tokens.onSurfaceVariant },
+const KIND_STYLE: Record<Kind, { bg: string; border: string }> = {
+  present: { bg: '#fff', border: '#e2e8f0' },
+  absent: { bg: '#fed7aa', border: '#fdba74' },
+  empty: { bg: '#fff', border: '#e2e8f0' },
 }
 
 /**
@@ -41,6 +42,7 @@ export function MonthCalendar({
   initialDate,
   selectedDates,
   onDateSelect,
+  maxSelectableDate,
   fullBleedMobile = false,
 }: {
   today: string
@@ -50,6 +52,8 @@ export function MonthCalendar({
   initialDate?: string
   selectedDates?: string[]
   onDateSelect?: (date: string) => void
+  /** Future dates after this one are shown disabled and cannot be selected. */
+  maxSelectableDate?: string
   fullBleedMobile?: boolean
 }) {
   const [month, setMonth] = useState(monthOf(initialDate ?? today))
@@ -77,13 +81,12 @@ export function MonthCalendar({
   const leading = parseDay(`${month}-01`).getUTCDay() // 0 = Sunday (first column, on the right in RTL)
 
   const summary = useMemo(() => {
-    const s = { present: 0, absent: 0, missing: 0, scheduled: 0 }
+    const s = { present: 0, absent: 0, scheduled: 0 }
     for (const d of days) {
       const r = reports?.get(d)
       const k = kindOf(r, d, today)
       if (k === 'present') s.present++
       else if (k === 'absent') s.absent++
-      else if (k === 'missing') s.missing++
       if (r?.state === 'scheduled') s.scheduled++
     }
     return s
@@ -135,9 +138,8 @@ export function MonthCalendar({
         </Stack>
 
         <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap justifyContent="center" sx={{ mb: 1.5 }}>
-          <Pill tone="success" label={`נוכח ${summary.present}`} />
-          <Pill tone="warning" label={`היעדרות ${summary.absent}`} />
-          <Pill tone="danger" label={`חסר דיווח ${summary.missing}`} />
+          <Pill label={`נוכח ${summary.present}`} />
+          <Pill tone="warning" label={`לא נוכח ${summary.absent}`} />
           {summary.scheduled > 0 && <Pill tone="info" label={`מתוכנן ${summary.scheduled}`} />}
         </Stack>
 
@@ -166,16 +168,18 @@ export function MonthCalendar({
                 const supportsFutureSelection = !!selectedDates && !!onDateSelect
                 const isFuture = d > today
                 const isFutureSelected = supportsFutureSelection && isFuture && selectedDates.includes(d)
-                const isSel = isFuture ? isFutureSelected : d === selected
+                const isSel = isFuture && supportsFutureSelection ? isFutureSelected : d === selected
+                const outOfRange = !!maxSelectableDate && d > maxSelectableDate
                 const reason = r?.effective.reason
-                const label = reason ? reason.label : k === 'missing' ? 'חסר' : ''
-                const aria = `${fmtDayLong(d)}: ${reason ? `${reason.label}, ${STATE_LABEL[r!.state]}` : k === 'missing' ? 'חסר דיווח' : 'לא דווח'}${isFutureSelected ? ', נבחר לדיווח' : ''}`
+                const aria = `${fmtDayLong(d)}: ${reason ? `${reason.is_present ? 'נוכח' : 'לא נוכח'}, ${STATE_LABEL[r!.state]}` : k === 'absent' ? 'לא נוכח, חסר דיווח' : 'לא דווח'}${isFutureSelected ? ', נבחר לדיווח' : ''}`
                 return (
                   <ButtonBase
                     key={d}
                     role="gridcell"
                     aria-selected={isSel}
                     aria-label={aria}
+                    aria-disabled={outOfRange || undefined}
+                    disabled={outOfRange}
                     onClick={() => {
                       setSelected(d)
                       onDateSelect?.(d)
@@ -188,7 +192,8 @@ export function MonthCalendar({
                       width: '100%',
                       overflow: 'hidden',
                       boxSizing: 'border-box',
-                      minHeight: { xs: 58, sm: 84 },
+                      minHeight: { xs: 52, sm: 72 },
+                      opacity: outOfRange ? 0.4 : 1,
                       p: { xs: 0.5, sm: 0.75 },
                       borderRadius: 2,
                       bgcolor: isFutureSelected ? tokens.primarySoft : st.bg,
@@ -229,29 +234,8 @@ export function MonthCalendar({
                         <LockIcon sx={{ fontSize: 13, color: tokens.onSurfaceVariant }} aria-hidden />
                       ) : null}
                     </Stack>
-                    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 0.25, mt: 0.25 }}>
-                      {reason ? (
-                        <ReasonIcon icon={reason.icon} sx={{ fontSize: { xs: 18, sm: 20 }, color: st.fg }} />
-                      ) : k === 'missing' ? (
-                        <ErrorOutlineIcon sx={{ fontSize: { xs: 16, sm: 18 }, color: st.fg }} aria-hidden />
-                      ) : null}
-                      {label && (
-                        <Typography
-                          sx={{
-                            display: { xs: 'none', sm: '-webkit-box' },
-                            fontSize: 11,
-                            lineHeight: '13px',
-                            fontWeight: 600,
-                            color: st.fg,
-                            textAlign: 'center',
-                            overflow: 'hidden',
-                            WebkitLineClamp: 2,
-                            WebkitBoxOrient: 'vertical',
-                          }}
-                        >
-                          {label}
-                        </Typography>
-                      )}
+                    <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {k === 'present' && <CheckIcon sx={{ fontSize: 16, color: '#94a3b8' }} aria-hidden />}
                     </Box>
                   </ButtonBase>
                 )
@@ -264,8 +248,7 @@ export function MonthCalendar({
           {(
             [
               ['present', 'נוכח'],
-              ['absent', 'היעדרות'],
-              ['missing', 'חסר דיווח'],
+              ['absent', 'לא נוכח'],
             ] as const
           ).map(([k, l]) => (
             <Stack key={k} direction="row" spacing={0.5} alignItems="center">

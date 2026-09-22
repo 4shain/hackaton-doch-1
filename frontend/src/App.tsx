@@ -6,7 +6,6 @@ import { useAuth } from './auth'
 import { AppShell } from './components/AppShell'
 import { Loading } from './components/common'
 import CheckinRequiredPage from './pages/CheckinRequiredPage'
-import CheckinsPage from './pages/CheckinsPage'
 import HrPage from './pages/HrPage'
 import LoginPage from './pages/LoginPage'
 import MyReportPage from './pages/MyReportPage'
@@ -61,7 +60,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<MyReportPage />} />
         <Route path="/soldiers" element={me.capabilities.commander ? <SoldiersPage /> : <Navigate to="/" replace />} />
-        <Route path="/checkins" element={me.capabilities.commander ? <CheckinsPage /> : <Navigate to="/" replace />} />
+        <Route path="/checkins" element={<Navigate to={me.capabilities.commander ? '/soldiers' : '/'} replace />} />
         <Route path="/checkin" element={<Navigate to="/" replace />} />
         <Route path="/hr" element={me.capabilities.hr ? <HrPage /> : <Navigate to="/" replace />} />
         <Route path="/history" element={<HistoryPage />} />

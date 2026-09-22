@@ -7,7 +7,7 @@ import { useSession } from '../auth'
 import { useToast } from '../components/AppShell'
 import { MonthCalendar } from '../components/MonthCalendar'
 import { ReportFormDialog } from '../components/dialogs'
-import { fmtDayLong } from '../lib/i18n'
+import { addDays, fmtDayLong } from '../lib/i18n'
 
 export default function HistoryPage() {
   const { me, meta } = useSession()
@@ -18,6 +18,7 @@ export default function HistoryPage() {
   const [reloadKey, setReloadKey] = useState(0)
 
   const refresh = () => setReloadKey((key) => key + 1)
+  const lastReportable = addDays(meta.today, meta.max_future_days)
   const selectedLabel =
     selectedFutureDates.length <= 3
       ? selectedFutureDates.map(fmtDayLong).join(' · ')
@@ -30,7 +31,7 @@ export default function HistoryPage() {
           לוח שנה
         </Typography>
         <Typography color="text.secondary">
-          {me.full_name} · ניתן לבחור כמה ימים עתידיים לדיווח משותף
+          {me.full_name} · ניתן לבחור ימים עתידיים לדיווח, עד שבוע קדימה
         </Typography>
       </div>
       <Box
@@ -47,7 +48,9 @@ export default function HistoryPage() {
           reloadKey={reloadKey}
           fullBleedMobile
           selectedDates={selectedFutureDates}
+          maxSelectableDate={lastReportable}
           onDateSelect={(date) => {
+            if (date > lastReportable) return
             if (date <= meta.today) {
               setSelectedFutureDates([])
               return
@@ -91,6 +94,9 @@ export default function HistoryPage() {
           })
         }}
       />
+
+      {/* Room under the content so the floating report button never hides the bottom of the page. */}
+      {selectedFutureDates.length > 0 && <Box aria-hidden sx={{ height: 88, flexShrink: 0 }} />}
 
       {selectedFutureDates.length > 0 && (
         <Paper

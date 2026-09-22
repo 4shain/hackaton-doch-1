@@ -3,7 +3,6 @@ import BusinessCenterIcon from '@mui/icons-material/BusinessCenter'
 import GroupsIcon from '@mui/icons-material/Groups'
 import LogoutIcon from '@mui/icons-material/Logout'
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth'
-import VisibilityIcon from '@mui/icons-material/Visibility'
 import {
   Alert,
   Badge,
@@ -69,13 +68,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       { to: '/history', label: 'לוח שנה', icon: <CalendarMonthIcon /> },
     ]
     if (me.capabilities.commander) list.push({ to: '/soldiers', label: 'החיילים שלי', icon: <GroupsIcon /> })
-    if (me.capabilities.commander) list.push({ to: '/checkins', label: 'ירוק בעיניים', icon: <VisibilityIcon /> })
     if (me.capabilities.hr) list.push({ to: '/hr', label: 'ניהול שלישות', icon: <BusinessCenterIcon /> })
     return list
   }, [me])
 
   const current = items.find((i) => (i.to === '/' ? loc.pathname === '/' : loc.pathname.startsWith(i.to))) ?? items[0]
-  const roles = [me.capabilities.commander && 'מפקד', me.capabilities.hr && 'שלישות'].filter(Boolean).join(' + ') || 'חייל'
 
   return (
     <ToastContext.Provider value={setToast}>
@@ -101,22 +98,6 @@ export function AppShell({ children }: { children: ReactNode }) {
                   alt="לוגו דו״ח 1"
                   sx={{ width: 42, height: 42, borderRadius: 2.5, border: '2px solid rgba(255,255,255,.3)', flexShrink: 0 }}
                 />
-                <Box sx={{ minWidth: 0 }}>
-                  <Stack direction="row" alignItems="center" spacing={0.75}>
-                    <Typography component="h1" sx={{ fontSize: 18, fontWeight: 700, whiteSpace: 'nowrap' }}>
-                      {desktop ? 'דו״ח 1' : current.label}
-                    </Typography>
-                    <Box
-                      component="span"
-                      sx={{ fontSize: 10, fontWeight: 600, px: 0.75, py: 0.25, borderRadius: 99, bgcolor: 'rgba(255,255,255,.2)', border: '1px solid rgba(255,255,255,.2)' }}
-                    >
-                      בלמ״ס
-                    </Box>
-                  </Stack>
-                  <Typography sx={{ fontSize: 12, opacity: 0.85, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {me.unit.name} | {me.rank} {me.full_name} · {roles}
-                  </Typography>
-                </Box>
               </Stack>
               <Stack direction="row" alignItems="center" spacing={0.5}>
                 <NotificationsMenu key={menuKey} />
