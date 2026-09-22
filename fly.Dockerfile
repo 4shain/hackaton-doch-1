@@ -8,7 +8,7 @@ RUN npm ci
 COPY frontend/ .
 RUN npm run build
 
-FROM python:3.12-slim AS backend-build
+FROM python:3.12-alpine AS backend-build
 COPY --from=ghcr.io/astral-sh/uv:0.8 /uv /usr/local/bin/uv
 WORKDIR /backend
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
@@ -16,16 +16,14 @@ COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 COPY backend/ .
 
-FROM postgis/postgis:16-3.4
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends nginx \
-    && rm -rf /var/lib/apt/lists/* \
-    && rm -f /etc/nginx/sites-enabled/default
+FROM postgis/postgis:16-3.4-alpine
+RUN apk add --no-cache nginx libstdc++ libgcc \
+    && rm -f /etc/nginx/http.d/default.conf
 
 COPY --from=backend-build /usr/local /usr/local
 COPY --from=backend-build /backend /backend
 COPY --from=frontend-build /app/dist /usr/share/nginx/html
-COPY nginx.fly.conf /etc/nginx/conf.d/default.conf
+COPY nginx.fly.conf /etc/nginx/http.d/default.conf
 COPY fly-entrypoint.sh /usr/local/bin/fly-entrypoint.sh
 RUN chmod +x /usr/local/bin/fly-entrypoint.sh
 

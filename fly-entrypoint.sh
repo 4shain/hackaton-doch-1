@@ -1,6 +1,8 @@
 #!/bin/sh
 set -e
 
+command -v pg_ctl >/dev/null 2>&1 || export PATH="$PATH:/usr/libexec/postgresql16:/usr/lib/postgresql/16/bin"
+
 PGDATA="${PGDATA:-/data/pg}"
 LOGFILE="${PGDATA}/postgres.log"
 
