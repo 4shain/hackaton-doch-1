@@ -139,9 +139,8 @@ cd frontend && npm install && npm run dev      # proxies /api to :8000
 
 ## Walkthrough
 
-1. **Soldier** – log in as איתי כהן. Turn on **בחירת כמה ימים**, mark the desired days directly in the week strip, and submit one status for all of them; days a commander or HR has locked are skipped, not overwritten. **היסטוריה** shows a month calendar (color + icon per day, legend, month navigation); tapping a day shows its three layers. Notifications open as a floating list from the bell in the header.
-   Then, as איתי כהן → "האם אתה בבסיס?" → **כן, אני בבסיס** (report is pending commander approval). Pick a day later in the week → **לא, אני לא בבסיס** → choose e.g. הפנייה רפואית; notes are required → the report is saved as *מתוכנן* and enters the queue at 08:00 on that date.
-2. **Commander** – log in as עומר לוי → **החיילים שלי**: metrics, distribution, filter chips. **אשר דיווח**, **תקן ואשר** (writes the commander layer), **דווח בשם החייל** for missing soldiers. Commander approval automatically makes the report available to HR; there is no manual handoff. A soldier's history opens as the same month calendar (HR gets it too, with edit/audit actions for the selected day).
+1. **Soldier** – log in as איתי כהן. The home page opens directly with "האם אתה בבסיס?" for today's report; choose **כן, אני בבסיס** to send it for commander approval. **לוח שנה** shows every report by month (color + icon per day, legend, month navigation); future days can be toggled individually and one status can be submitted for all selected dates from the bottom action. Selecting today or a past day clears the future selection. Days locked by a commander or HR are skipped and not overwritten. Scheduled reports enter the approval queue at 08:00 on their report date. Notifications open as a floating list from the bell in the header.
+2. **Commander** – log in as עומר לוי → **החיילים שלי**: metrics, distribution, filter chips. **אשר דיווח**, **תקן ואשר** (writes the commander layer), **דווח בשם החייל** for missing soldiers. Commander approval automatically makes the report available to HR; there is no manual handoff or second HR approval. A soldier's history opens as the same month calendar (HR gets it too, with edit/audit actions for the selected day).
 3. **HR** – log in as מיכל פרץ → **ניהול שלישות**: filter by date/soldier, see handed-off / pending / missing, edit current or historical reports (HR layer), view the audit log, export CSV.
 4. **ירוק בעיניים** – as עומר לוי send a request (all recursive subordinates are snapshotted as recipients and notified). Log in as איתי כהן: the app immediately goes to a separate, blocking page (`/checkin`) that must be answered with a free-text location before anything else is usable. Users already in the app are taken over within ~15 seconds (polling). For the chain: send as רון ברק, log in as יעל מזרחי, answer, then see her company's status and re-send it to them. Back as עומר, open the request to see responded/pending counts, locations and times; close it when done.
 
@@ -217,7 +216,7 @@ To run it by hand: `python -m app.cli run-daily-job --date YYYY-MM-DD`. It is no
 
 ## Verification
 
-- `cd backend && uv run pytest` runs 32 API/domain tests against a real PostGIS database (`doch1_test`). Create it once with `docker compose exec db psql -U doch1 -c "CREATE DATABASE doch1_test"`. They cover:
+- `cd backend && uv run pytest` runs 36 API/domain tests against a real PostGIS database (`doch1_test`). Create it once with `docker compose exec db psql -U doch1 -c "CREATE DATABASE doch1_test"`. They cover:
   - auth boundaries and client role claims being ignored;
   - all four role combinations, and combined roles keeping both scopes;
   - commander and HR scopes;
@@ -230,8 +229,34 @@ To run it by hand: `python -m app.cli run-daily-job --date YYYY-MM-DD`. It is no
   - recursive check-in recipients and snapshotting, response isolation, closing, mid-level commander subtree status and re-send;
   - multi-day reporting (all days written, HR-locked days skipped, validation before any write);
   - the idempotent 08:00 job;
-  - unit cycle prevention.
+  - unit cycle prevention;
+  - the nightly anomaly scan (Jev is faked in tests): idempotency, HR unit scoping, missing API key.
 - `cd e2e && npm i && npx playwright install chromium && node journey.mjs` runs a browser journey with 43 checks against the running app (reseed first). It covers soldier → commander → HR, the ירוק בעיניים round trip, RTL on the document and on portal dialogs, and no horizontal overflow at 390px and 1366px. Screenshots are saved to `e2e/screens/`.
+
+## Nightly anomaly scan (Jev)
+
+Every night at **02:00 Asia/Jerusalem** (`ANOMALY_JOB_HOUR`), the in-process scheduler sends each active soldier's last **20 days** (`ANOMALY_LOOKBACK_DAYS`, ending yesterday) to [Jev](https://typesafe.ai), TypeSafe's "System One" classification model. Code: `backend/app/services/anomaly.py`.
+
+- **Input ("state"), one request per soldier.** A day-by-day timeline with the soldier, commander and HR layers and all free-text notes, plus facts computed in code (days reported, missing, absent, sick days next to a weekend, layer disagreements). Jev is documented as weak at counting and dates, so the code counts for it.
+- **Questions, answered in parallel in the same call.** Three yes/no probabilities (notes contradict the status, soldier vs. commander conflict, suspicious absence pattern) and a severity score from 0 to 3. A soldier is flagged when the strongest signal is ≥ `ANOMALY_THRESHOLD` (0.75). Jev's generic "is anything weird?" probability sat at ≥0.72 for every soldier, so it isn't used.
+- **Storage.** Only flagged soldiers are stored (`soldier_anomalies`), per run (`anomaly_runs`: tokens, counts, cost). There is at most one nightly run per date (partial unique index).
+- **HR page.** The "חריגות בדיווחים" card lists the unit's flagged soldiers from the latest run, with severity, signals, facts and a link to the history calendar. "סריקה עכשיו" rescans the HR user's unit on demand.
+- **CLI.** `uv run python -m app.cli run-anomaly-scan [--date YYYY-MM-DD] [--unit ID]`.
+- **Config.** `TYPESAFE_API_KEY` (the scan is off without it), `JEV_MODEL` (pinned `jev-1.13.0`) and `ANOMALY_CONCURRENCY` (16).
+- **Seed.** The seed plants two anomalies: דניאל אברג׳יל (sick every Thursday/Sunday, plus "at base" with a note saying he was home) and אלון דהן (reports "at base" while his commander says he never showed up).
+
+### Cost at 100,000 soldiers
+
+Jev bills **input tokens only**: $0.042 per 1M tokens, and output is free. The measured average on the seeded data is **~1,170 input tokens per soldier** (20 Hebrew day lines, notes, facts and the 4 questions).
+
+| | per night | per month (30 nights) |
+|---|---|---|
+| Tokens (100k × 1,170) | 117M | 3.5B |
+| **Cost** | **≈ $4.90** | **≈ $150** |
+| Pessimistic: long notes, ~2,000 tokens/soldier | ≈ $8.40 | ≈ $250 |
+
+- **Time.** The API limit is 1,200 requests/min (the 250k tokens/s limit is not the bottleneck), so 100k soldiers take ≥ 83 min, and about 1.5–2 h at the default concurrency. That fits between 02:00 and the 08:00 job.
+- **Easy savings.** Skip soldiers whose 20 days are all "נוכח בבסיס" with no notes and no disagreements (typically the majority). Soldiers with zero reports can be flagged in code without calling Jev.
 
 ## Follow-ups (deliberately not built)
 

@@ -34,7 +34,7 @@ REASONS = [
 def reset(db: Session) -> None:
     db.execute(
         text(
-            "TRUNCATE auth_sessions, notifications, checkin_responses, checkin_requests, report_audit_events, "
+            "TRUNCATE soldier_anomalies, anomaly_runs, auth_sessions, notifications, checkin_responses, checkin_requests, report_audit_events, "
             "attendance_reports, hr_assignments, daily_job_runs, attendance_reasons RESTART IDENTITY CASCADE"
         )
     )
@@ -143,13 +143,37 @@ def _seed_reports(db: Session, reasons: dict, company_soldiers: list[User], team
         )
         return r
 
-    # History: last 14 days, approved and handed to HR; a couple of gaps and one HR correction.
-    for back in range(14, 0, -1):
+    # History: last 20 days, approved and handed to HR; a couple of gaps and one HR correction.
+    # Days 15-20 draw from their own RNG so the last 14 days stay identical to the original seed (tests rely on it).
+    history: dict[tuple[int, int], AttendanceReport] = {}
+    older_rng = random.Random(72)
+    for back in range(20, 0, -1):
         d = today - timedelta(days=back)
+        day_rng = older_rng if back > 14 else rng
         for u in company_soldiers:
-            if rng.random() < 0.04:
-                continue  # historical missing report
-            add(u, d, rng.choice(codes), ReportState.sent_to_hr)
+            if day_rng.random() < 0.04 or (u is team2[1] and back == 15):
+                continue  # historical missing report / HR-corrected day below
+            history[(u.id, back)] = add(u, d, day_rng.choice(codes), ReportState.sent_to_hr)
+
+    # Planted anomalies for the nightly Jev scan demo (kept 4+ days back, clear of the tests' days).
+    def plant(u: User, back: int, code: str, notes: str | None = None, cmdr_code: str | None = None, cmdr_notes: str | None = None) -> None:
+        r = history.get((u.id, back)) or add(u, today - timedelta(days=back), code, ReportState.sent_to_hr)
+        history[(u.id, back)] = r
+        r.soldier_reason_id, r.soldier_notes = reasons[code].id, notes
+        if cmdr_code:
+            r.commander_reason_id, r.commander_notes = reasons[cmdr_code].id, cmdr_notes
+            r.commander_reported_by_id, r.commander_reported_at = u.commander_id, now
+
+    daniel, alon = team1[2], team2[3]
+    # Sick every Thursday / Sunday (around the weekend), and "at base" with a note saying he was home.
+    for back in range(4, 21):
+        if (today - timedelta(days=back)).weekday() in (3, 6):
+            plant(daniel, back, "sick")
+    plant(daniel, 5 if (today - timedelta(days=5)).weekday() not in (3, 6) else 6, "at_base", "הייתי בבית כל היום, הרכב התקלקל")
+    # Soldier says at base, commander says he never showed up.
+    plant(alon, 7, "at_base", None, "other", "לא הגיע לבסיס ולא ענה לטלפון")
+    plant(alon, 8, "at_base", None, "other", "לא הגיע, לא ידוע איפה הוא")
+    plant(alon, 12, "outside_duty", "קורס נהיגה", "vacation", "אין שום קורס, יצא הביתה")
     corrected = add(team2[1], today - timedelta(days=15), "at_base", ReportState.sent_to_hr)
     corrected.hr_reason_id = reasons["sick"].id
     corrected.hr_notes = "תוקן לפי אישור רפואי"

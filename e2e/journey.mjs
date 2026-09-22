@@ -49,34 +49,35 @@ const shot = (page, name) => page.screenshot({ path: `${SHOTS}${name}.png`, full
   await page.getByText('הדיווח נשלח לאישור המפקד').first().waitFor()
   check('soldier "at base" report is pending approval', await page.getByText('ממתין לאישור').first().isVisible())
 
-  // Future date with a reason that requires notes.
-  const tabs = page.getByRole('tab')
-  await tabs.nth(4).click()
-  await page.getByRole('button', { name: 'לא, אני לא בבסיס' }).click()
-  await page.getByRole('radio', { name: /הפנייה רפואית/ }).click()
-  await page.getByRole('button', { name: 'שמירת דיווח עתידי' }).click()
-  check('required notes validated in UI', await page.getByText('עבור סטטוס זה חובה למלא הערות.').first().isVisible())
-  await page.getByLabel(/הערות \(חובה\)/).fill('בדיקה בבית חולים')
-  await page.getByRole('button', { name: 'שמירת דיווח עתידי' }).click()
-  await page.getByText(/יישלח לאישור ב-08:00/).first().waitFor()
+  // Calendar: history and future reporting now live together.
+  await page.getByRole('navigation', { name: 'ניווט ראשי' }).getByRole('button', { name: /^לוח שנה/ }).click()
+  await page.getByRole('grid').waitFor()
+  check('calendar shows every day of the month', (await page.getByRole('gridcell').count()) >= 28)
+
+  // A future date with a reason that requires notes.
+  await page.getByRole('button', { name: 'החודש הבא' }).click()
+  await page.getByRole('gridcell').nth(4).click()
+  await page.getByRole('button', { name: 'דיווח עבור יום אחד' }).click()
+  const futureDialog = page.getByRole('dialog')
+  await futureDialog.getByRole('radio', { name: /הפנייה רפואית/ }).click()
+  await futureDialog.getByRole('button', { name: 'שמירת דיווח עתידי' }).click()
+  check('required notes validated in UI', await futureDialog.getByText('עבור סטטוס זה חובה למלא הערות.').first().isVisible())
+  await futureDialog.getByLabel(/הערות \(חובה\)/).fill('בדיקה בבית חולים')
+  await futureDialog.getByRole('button', { name: 'שמירת דיווח עתידי' }).click()
+  await page.getByText('הדיווח נשמר ליום אחד').first().waitFor()
   check('future report is scheduled', await page.getByText('מתוכנן', { exact: true }).first().isVisible())
   await shot(page, '03-soldier-future-mobile')
 
-  // Multi-day report: select days inline, without opening another page or dialog.
-  await page.getByRole('switch', { name: 'בחירת כמה ימים' }).click()
-  const days = page.getByRole('checkbox')
-  for (const i of [0, 1, 2, 3]) await days.nth(i).click()
-  await page.getByRole('button', { name: 'לא, אני לא בבסיס' }).click()
-  await page.getByRole('radio', { name: /חופשה/ }).click()
+  // Toggle several future dates and report them together.
+  for (const i of [5, 6, 7, 8, 9]) await page.getByRole('gridcell').nth(i).click()
+  await page.getByRole('button', { name: 'דיווח עבור 5 ימים' }).click()
+  const multiDialog = page.getByRole('dialog')
+  await multiDialog.getByRole('radio', { name: /חופשה/ }).click()
   await page.waitForTimeout(500)
-  await page.screenshot({ path: `${SHOTS}12-multi-day-inline-mobile.png`, fullPage: true })
-  await page.getByRole('button', { name: 'שמירת דיווח ל-5 ימים' }).click()
+  await page.screenshot({ path: `${SHOTS}12-multi-day-calendar-mobile.png` })
+  await multiDialog.getByRole('button', { name: 'שמירת דיווח ל-5 ימים' }).click()
   check('multi-day report saved for 5 days', await page.getByText('הדיווח נשמר ל-5 ימים').waitFor().then(() => true, () => false))
 
-  // History as a month calendar.
-  await page.getByRole('navigation', { name: 'ניווט ראשי' }).getByRole('button', { name: /^היסטוריה/ }).click()
-  await page.getByRole('grid').waitFor()
-  check('history calendar shows every day of the month', (await page.getByRole('gridcell').count()) >= 28)
   await page.getByRole('gridcell').first().click()
   check('clicking a calendar day shows its report', await page.getByText(/דיווח החייל|לא נמצא דיווח ליום זה|טרם דווח ליום זה|חייל/).first().isVisible())
   await shot(page, '13-history-calendar-mobile')
@@ -217,7 +218,7 @@ const shot = (page, name) => page.screenshot({ path: `${SHOTS}${name}.png`, full
 // ---------------------------------------------------------------- horizontal overflow check
 for (const [name, vp] of [['mobile', MOBILE], ['desktop', DESKTOP]]) {
   const { ctx, page } = await loginAs('דנה אלון', vp)
-  for (const nav of ['הדיווח שלי', 'היסטוריה', 'החיילים שלי', 'ירוק בעיניים', 'ניהול שלישות']) {
+  for (const nav of ['הדיווח שלי', 'לוח שנה', 'החיילים שלי', 'ירוק בעיניים', 'ניהול שלישות']) {
     await page.getByRole('navigation', { name: 'ניווט ראשי' }).getByRole('button', { name: new RegExp(`^${nav}`) }).first().click()
     await page.waitForTimeout(500)
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
