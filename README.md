@@ -1,13 +1,52 @@
 # hackaton-doch-1
 
-Things to define: unit, status, and report
+## Entities
+### Unit
+Each unit has a single commander, and possibly some HRs.
 
-## Users
-There are three kinds of user:
-1. soldier;
-2. commander;
-3. human resources (HR).
+Each unit has the following attributes:
+1. ID;
+2. Name;
+3. Parent unit (with the exception of the "top" unit);
+4. Commander;
+5. HRs.
 
+### User
+A user is a soldier. Every soldier has the following attributes:
+1. Personal number (ID);
+2. Full name;
+3. Commander (with the exception of the "top" soldier);
+4. Unit.
+
+#### Roles
+There are a few roles a soldier can have:
+1. commander;
+2. human resources (HR).
+
+Every soldier is a soldier, and a soldier being a commander or an HR is independent. You can have four kinds of soldiers:
+1. a simple soldier;
+2. a commander (also a soldier), e.g. a team commander;
+3. an HR (also a soldier), e.g. a soldier in the HR office;
+4. an HR and a commander, e.g. the commander of the HR office.
+
+### Attendence Report
+Each day every soldier can submit an attedence report, or their commander or unit's HR can submit on their behalf.
+
+Every attendence report has the following attributes:
+1. Date;
+2. Soldier ID;
+3. Soldier reported status;
+4. Soldier reported notes;
+5. Commander reported status;
+6. Commander reported notes;
+7. HR reported status;
+8. HR reported notes.
+
+
+### "Yarok Ba'enyim" Report
+This part is currently left unspecified.
+
+## Requirements
 ### Soldier
 Must have: As a soldier I can report my status.
 Must have: As a soldier I can report my future statuses.
@@ -19,8 +58,6 @@ Nice to have: As a soldier I get a notification when I need to report my status.
 Nice to have: As a soldier I see when the report is frozen and becomes a status.
 
 ### Commander
-A commander is a soldier as well.
-
 Must have: As a commander I can see my soldiers' status reports.
 Must have: As a commander I can change my soldiers' status reports.
 Must have: As a commander I can see my soldiers' past statuses.
@@ -31,15 +68,9 @@ Nice to have: As a commander I get an AI summary of my soldiers' statuses and re
 Nice to have: Request a change to my soldiers' past statuses from the HR.
 
 ### Human Resources (HR)
-Every HR is also a soldier. An HR can also be a commander.
-
 Must have: As an HR I have a unit I am assigned to.
 Must have: As an HR I can change the unit's soldiers' status reports.
 Must have: As an HR I can change the unit's soldiers' past statuses.
 Must have: As an HR I can export the unit's soldiers' past statuses as a CSV.
 Nice to have: As an HR I see commanders' requests.
 Nice to have: As an HR I can get an AI summary of any part of the unit's soldiers' past statuses including insights.
-
-## Statuses and Reports
-Each day there is a status
-
