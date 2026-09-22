@@ -224,6 +224,47 @@ class DailyJobRun(Base):
     reminder_count: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class AnomalyRun(Base):
+    """One pass of the Jev anomaly scan. unit_id NULL = the nightly all-soldiers run."""
+
+    __tablename__ = "anomaly_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_date: Mapped[date] = mapped_column(Date, index=True)
+    window_from: Mapped[date] = mapped_column(Date)
+    window_to: Mapped[date] = mapped_column(Date)
+    unit_id: Mapped[int | None] = mapped_column(ForeignKey("units.id"))
+    trigger: Mapped[str] = mapped_column(String(20))  # nightly | manual
+    model: Mapped[str] = mapped_column(String(40))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    checked_count: Mapped[int] = mapped_column(Integer, default=0)
+    flagged_count: Mapped[int] = mapped_column(Integer, default=0)
+    failed_count: Mapped[int] = mapped_column(Integer, default=0)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class SoldierAnomaly(Base):
+    """A soldier flagged by an anomaly run. Only flagged soldiers are stored."""
+
+    __tablename__ = "soldier_anomalies"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("anomaly_runs.id", ondelete="CASCADE"), index=True)
+    soldier_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    # Jev outputs: score = strongest signal probability, severity on a 0..3 scale, per-signal probabilities.
+    score: Mapped[float] = mapped_column()
+    severity: Mapped[float] = mapped_column()
+    signals: Mapped[dict] = mapped_column(JSONB, default=dict)
+    # Deterministic facts computed in code (Jev is weak at counting and dates).
+    facts: Mapped[list] = mapped_column(JSONB, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    soldier: Mapped[User] = relationship()
+
+    __table_args__ = (UniqueConstraint("run_id", "soldier_id", name="uq_anomaly_run_soldier"),)
+
+
 class AuthSession(Base):
     __tablename__ = "auth_sessions"
 

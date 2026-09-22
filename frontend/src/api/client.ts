@@ -1,6 +1,7 @@
 import axios, { AxiosError } from 'axios'
 import { translateError } from '../lib/i18n'
 import type {
+  Anomalies,
   AppNotification,
   AuditEvent,
   AuthConfig,
@@ -93,6 +94,8 @@ export const api = {
   hrSet: (body: { soldier_id: number; report_date: string; reason_id: number; notes?: string | null }) =>
     d<Report>(http.post('/api/hr/reports', body)),
   hrAudit: (reportId: number) => d<AuditEvent[]>(http.get(`/api/hr/reports/${reportId}/audit`)),
+  hrAnomalies: () => d<Anomalies>(http.get('/api/hr/anomalies')),
+  hrAnomalyScan: () => d<Anomalies>(http.post('/api/hr/anomalies/scan')),
   hrExport: (date_from: string, date_to: string) =>
     http.get('/api/hr/export.csv', { params: { date_from, date_to }, responseType: 'blob' }).then((r) => r.data as Blob),
 

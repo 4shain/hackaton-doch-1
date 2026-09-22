@@ -11,8 +11,10 @@ from sqlalchemy.orm import Session, joinedload
 from app.auth import get_principal
 from app.db import get_db
 from app.errors import AppError, forbidden
-from app.models import AttendanceReport, ReportAuditEvent, ReportState, Unit, User
+from app.config import get_settings
+from app.models import AnomalyRun, AttendanceReport, ReportAuditEvent, ReportState, SoldierAnomaly, Unit, User
 from app.services import attendance as svc
+from app.services.anomaly import SIGNALS, run_anomaly_scan, run_out
 from app.services.scope import Principal, require_hr_of
 from app.timeutil import local_today
 
@@ -178,3 +180,50 @@ def export_csv(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+def _anomalies_out(db: Session, p: Principal) -> dict:
+    run = db.scalar(
+        select(AnomalyRun)
+        .where(AnomalyRun.finished_at.is_not(None), or_(AnomalyRun.unit_id.is_(None), AnomalyRun.unit_id == p.hr_unit_id))
+        .order_by(AnomalyRun.finished_at.desc())
+        .limit(1)
+    )
+    items = []
+    if run is not None:
+        rows = db.scalars(
+            select(SoldierAnomaly)
+            .join(User, User.id == SoldierAnomaly.soldier_id)
+            .options(joinedload(SoldierAnomaly.soldier))
+            .where(SoldierAnomaly.run_id == run.id, User.unit_id == p.hr_unit_id)
+            .order_by(SoldierAnomaly.severity.desc(), SoldierAnomaly.score.desc())
+        ).all()
+        items = [
+            {
+                "soldier": svc.soldier_out(a.soldier),
+                "score": a.score,
+                "severity": a.severity,
+                "signals": [k for k in SIGNALS if a.signals.get(k, 0) >= 0.5],
+                "facts": a.facts,
+            }
+            for a in rows
+        ]
+    return {
+        "configured": get_settings().anomaly_scan_configured,
+        "run": None if run is None else run_out(run),
+        "items": items,
+    }
+
+
+@router.get("/anomalies")
+def hr_anomalies(p: Principal = Depends(require_hr), db: Session = Depends(get_db)) -> dict:
+    return _anomalies_out(db, p)
+
+
+@router.post("/anomalies/scan")
+async def hr_anomaly_scan(p: Principal = Depends(require_hr), db: Session = Depends(get_db)) -> dict:
+    """Run the scan now for the HR user's unit only (the nightly run covers everyone)."""
+    if not get_settings().anomaly_scan_configured:
+        raise AppError("ANOMALY_SCAN_NOT_CONFIGURED", 503)
+    await run_anomaly_scan(local_today(), p.hr_unit_id, trigger="manual")
+    return _anomalies_out(db, p)

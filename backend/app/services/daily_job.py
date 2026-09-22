@@ -21,7 +21,8 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import SessionLocal
-from app.models import AttendanceReport, DailyJobRun, ReportAuditEvent, ReportState, User
+from app.models import AnomalyRun, AttendanceReport, DailyJobRun, ReportAuditEvent, ReportState, User
+from app.services.anomaly import run_anomaly_scan
 from app.services.notify import notify
 from app.timeutil import local_now, utcnow
 
@@ -110,14 +111,29 @@ def _due_now(db: Session) -> date | None:
     return None if done else today
 
 
+def _anomaly_due_now(db: Session) -> date | None:
+    s = get_settings()
+    now = local_now()
+    if not s.anomaly_scan_configured or now.hour < s.anomaly_job_hour:
+        return None
+    today = now.date()
+    done = db.scalar(select(AnomalyRun.id).where(AnomalyRun.run_date == today, AnomalyRun.unit_id.is_(None)))
+    return None if done else today
+
+
 async def scheduler_loop(interval_seconds: int = 60) -> None:
-    """Lightweight in-process scheduler: once per day, at/after 08:00 local time, run the job."""
+    """Lightweight in-process scheduler: once per day, at/after 08:00 local time, run the job.
+    Also starts the nightly anomaly scan (default 02:00) as a background task so it never delays the 08:00 job."""
+    anomaly_task: asyncio.Task | None = None
     while True:
         try:
             with SessionLocal() as db:
                 run_date = _due_now(db)
                 if run_date:
                     run_daily_job(db, run_date)
+                scan_date = None if anomaly_task and not anomaly_task.done() else _anomaly_due_now(db)
+            if scan_date:
+                anomaly_task = asyncio.create_task(run_anomaly_scan(scan_date))
         except Exception:  # keep the loop alive
             log.exception("daily job failed")
         await asyncio.sleep(interval_seconds)

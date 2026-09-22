@@ -40,6 +40,7 @@ const ERRORS: Record<string, string> = {
   LOCATION_TOO_LONG: 'תיאור המיקום ארוך מדי (עד 300 תווים).',
   NOTIFICATION_NOT_FOUND: 'ההתראה לא נמצאה.',
   UNIT_HIERARCHY_CYCLE: 'לא ניתן ליצור מעגל בהיררכיית היחידות.',
+  ANOMALY_SCAN_NOT_CONFIGURED: 'סריקת החריגות אינה מוגדרת בשרת (חסר מפתח API).',
 }
 
 export const translateError = (code: string) => ERRORS[code] ?? ERRORS.UNKNOWN

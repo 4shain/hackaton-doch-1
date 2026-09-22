@@ -28,6 +28,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api, errorMessage } from '../api/client'
 import type { Report, Roster, RosterRow } from '../api/types'
 import { useSession } from '../auth'
+import { AnomaliesCard } from '../components/AnomaliesCard'
 import { useToast } from '../components/AppShell'
 import { accentFor, Empty, ErrorState, Loading, MetricCard, SectionTitle, StateChip, StatusChip } from '../components/common'
 import { AuditDialog, ReportFormDialog } from '../components/dialogs'
@@ -290,6 +291,8 @@ export default function HrPage() {
           <Distribution rows={rows} title="התפלגות ביחידה" />
         </>
       )}
+
+      <AnomaliesCard onOpenHistory={(soldier) => setHistoryFor({ soldier, report: null })} />
 
       <SectionTitle>ייצוא היסטוריה ל-CSV</SectionTitle>
       <Card sx={{ p: 2 }}>
