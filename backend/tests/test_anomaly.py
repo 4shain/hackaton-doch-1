@@ -1,11 +1,12 @@
 import asyncio
+from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.config import get_settings
-from app.models import AnomalyRun, User
+from app.models import AnomalyRun, AttendanceReport, ReportState, User
 from app.services import anomaly
 from app.timeutil import local_today
 from tests.conftest import HR_ONLY, SOLDIER
@@ -63,3 +64,18 @@ def test_scan_requires_api_key(login, monkeypatch):
     monkeypatch.setattr(get_settings(), "typesafe_api_key", None)
     r = login(HR_ONLY).post("/api/hr/anomalies/scan")
     assert r.status_code == 503 and r.json()["error"]["code"] == "ANOMALY_SCAN_NOT_CONFIGURED"
+
+
+def test_days_before_go_live_are_not_scanned(db, jev):
+    db.execute(text("TRUNCATE attendance_reports CASCADE"))
+    db.commit()
+    assert asyncio.run(anomaly.run_anomaly_scan(local_today()))["checked"] == 0 and jev.states == []
+
+    # First report ever was yesterday: the window starts there, not 20 days back.
+    yesterday = local_today() - timedelta(days=1)
+    s = db.scalar(select(User).where(User.personal_number == SOLDIER))
+    db.add(AttendanceReport(soldier_id=s.id, report_date=yesterday, state=ReportState.sent_to_hr, created_by_id=s.id))
+    db.commit()
+    asyncio.run(anomaly.run_anomaly_scan(local_today(), trigger="manual", unit_id=s.unit_id))
+    assert all(len(st["daily_reports"]) == 1 for st in jev.states) and jev.states
+    assert all("אברג" not in st["soldier"] for st in jev.states)  # names are never sent

@@ -3,7 +3,7 @@ import os
 os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://doch1:doch1@localhost:5433/doch1_test")
 os.environ["SCHEDULER_ENABLED"] = "false"
 os.environ["APP_ENV"] = "development"
-os.environ["DEV_LOGIN_ENABLED"] = "true"
+os.environ["ID_LOGIN_ENABLED"] = "true"
 
 import pytest  # noqa: E402
 from alembic import command  # noqa: E402
@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from app.db import SessionLocal  # noqa: E402
 from app.main import app  # noqa: E402
-from app.seed import seed  # noqa: E402
+from tests.demo_seed import seed  # noqa: E402
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(__file__))
 
@@ -57,7 +57,7 @@ class As:
     """Tiny helper: an authenticated client for a given personal number."""
 
     def __init__(self, client: TestClient, pn: str):
-        r = client.post("/api/auth/dev-login", json={"personal_number": pn})
+        r = client.post("/api/auth/login", json={"id_number": pn})
         assert r.status_code == 200, r.text
         self.c = client
         self.me = r.json()["me"]

@@ -1,20 +1,23 @@
+import re
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 
 from app.auth import create_session, get_principal, get_token, revoke_session
 from app.config import get_settings
 from app.db import get_db
 from app.errors import AppError
 from app.models import Unit, User
+from app.seed import normalize_id
 from app.services.scope import Principal, load_principal
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
-class DevLoginIn(BaseModel):
-    personal_number: str = Field(min_length=1, max_length=20)
+class LoginIn(BaseModel):
+    id_number: str = Field(min_length=1, max_length=20)
 
 
 def me_out(db: Session, p: Principal) -> dict:
@@ -42,38 +45,19 @@ def me_out(db: Session, p: Principal) -> dict:
 @router.get("/config")
 def auth_config() -> dict:
     s = get_settings()
-    return {"dev_login_enabled": s.demo_login_active, "sso_configured": s.sso_configured, "environment": s.app_env}
+    return {"id_login_enabled": s.id_login_enabled, "sso_configured": s.sso_configured, "environment": s.app_env}
 
 
-@router.get("/demo-users")
-def demo_users(db: Session = Depends(get_db)) -> list[dict]:
-    if not get_settings().demo_login_active:
-        raise AppError("DEV_LOGIN_DISABLED", 403)
-    users = db.scalars(select(User).options(joinedload(User.unit)).where(User.is_active).order_by(User.id)).all()
-    out = []
-    for u in users:
-        p = load_principal(db, u)
-        out.append(
-            {
-                "personal_number": u.personal_number,
-                "full_name": u.full_name,
-                "rank": u.rank,
-                "role_title": u.role_title,
-                "unit_name": u.unit.name,
-                "capabilities": {"soldier": True, "commander": p.is_commander, "hr": p.is_hr},
-            }
-        )
-    return out
-
-
-@router.post("/dev-login")
-def dev_login(body: DevLoginIn, db: Session = Depends(get_db)) -> dict:
-    if not get_settings().demo_login_active:
-        raise AppError("DEV_LOGIN_DISABLED", 403)
-    user = db.scalar(select(User).where(User.personal_number == body.personal_number.strip(), User.is_active))
+@router.post("/login")
+def login(body: LoginIn, db: Session = Depends(get_db)) -> dict:
+    """Login by ת״ז. Accepts the number with or without its leading zeros."""
+    if not get_settings().id_login_enabled:
+        raise AppError("ID_LOGIN_DISABLED", 403)
+    raw = re.sub(r"\D", "", body.id_number)
+    user = db.scalar(select(User).where(User.personal_number.in_({raw, normalize_id(raw)}), User.is_active)) if raw else None
     if user is None:
         raise AppError("USER_NOT_FOUND", 404)
-    token = create_session(db, user, "dev")
+    token = create_session(db, user, "id")
     return {"token": token, "me": me_out(db, load_principal(db, user))}
 
 

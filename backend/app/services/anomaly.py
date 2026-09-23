@@ -15,7 +15,7 @@ import logging
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from sqlalchemy import select, text, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, joinedload
 from typesafe_sdk import AsyncTypeSafeClient, Noul, Score
@@ -23,6 +23,7 @@ from typesafe_sdk import AsyncTypeSafeClient, Noul, Score
 from app.config import get_settings
 from app.db import SessionLocal
 from app.models import AnomalyRun, AttendanceReport, SoldierAnomaly, User
+from app.services.scope import unit_subtree_ids
 from app.timeutil import utcnow
 
 log = logging.getLogger("doch1.anomaly")
@@ -114,7 +115,8 @@ def build_case(soldier: User, reports: list[AttendanceReport], window_from: date
         facts.append(f"{by_commander} ימים דווחו ע״י המפקד בלבד")
 
     state = {
-        "soldier": " ".join(x for x in (soldier.rank, soldier.full_name, soldier.role_title and f"({soldier.role_title})") if x),
+        # No name or ID number: nothing identifying leaves the system.
+        "soldier": soldier.role_title or "חייל",
         "period": f"{window_from.strftime('%d/%m/%Y')} - {window_to.strftime('%d/%m/%Y')}",
         "computed_facts": facts,
         "daily_reports": lines,
@@ -193,8 +195,13 @@ def _soldier_ids(unit_id: int | None) -> list[int]:
     with SessionLocal() as db:
         stmt = select(User.id).where(User.is_active)
         if unit_id is not None:
-            stmt = stmt.where(User.unit_id == unit_id)
+            stmt = stmt.where(User.unit_id.in_(unit_subtree_ids(db, unit_id)))
         return list(db.scalars(stmt.order_by(User.id)).all())
+
+
+def _first_report_date() -> date | None:
+    with SessionLocal() as db:
+        return db.scalar(select(func.min(AttendanceReport.report_date)))
 
 
 def _load(ids: list[int], window_from: date, window_to: date) -> list[Case]:
@@ -222,15 +229,20 @@ def _save(run_id: int, results: list[tuple[Case, dict | None, int]], finished: b
 
 
 async def run_anomaly_scan(run_date: date, unit_id: int | None = None, trigger: str = "nightly") -> dict | None:
-    """Scan every active soldier (or one unit's). Window = the N days before run_date. Returns None if skipped."""
+    """Scan every active soldier (or one unit's subtree). Window = the N days before run_date, but never before the
+    first report in the system (days before go-live are not "unreported"). Returns None if skipped."""
     s = get_settings()
     window_to = run_date - timedelta(days=1)
     window_from = run_date - timedelta(days=s.anomaly_lookback_days)
+    first = await asyncio.to_thread(_first_report_date)
+    if first is not None:
+        window_from = min(max(window_from, first), window_to)
     run_id = await asyncio.to_thread(_claim_run, run_date, window_from, window_to, unit_id, trigger)
     if run_id is None:
         return None
 
-    ids = await asyncio.to_thread(_soldier_ids, unit_id)
+    # Nothing reported yet in the window: nothing to scan.
+    ids = await asyncio.to_thread(_soldier_ids, unit_id) if first is not None and first <= window_to else []
     sem = asyncio.Semaphore(s.anomaly_concurrency)
     client = make_client()
     try:

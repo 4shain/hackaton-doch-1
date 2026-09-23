@@ -161,7 +161,7 @@ const shot = (page, name) => page.screenshot({ path: `${SHOTS}${name}.png`, full
   const path = await download.path()
   const fs = await import('node:fs')
   const buf = fs.readFileSync(path)
-  check('CSV export has BOM + Hebrew headers', buf[0] === 0xef && buf[1] === 0xbb && buf.toString('utf8').includes('מספר אישי'))
+  check('CSV export has BOM + Hebrew headers', buf[0] === 0xef && buf[1] === 0xbb && buf.toString('utf8').includes('ת״ז'))
   await ctx.close()
 }
 {

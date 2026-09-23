@@ -3,7 +3,9 @@ set -e
 
 command -v pg_ctl >/dev/null 2>&1 || export PATH="$PATH:/usr/libexec/postgresql16:/usr/lib/postgresql/16/bin"
 
-PGDATA="${PGDATA:-/data/pg}"
+# Always on the mounted volume (the postgis image sets PGDATA to an ephemeral path).
+PGDATA=/data/pg
+export PGDATA
 LOGFILE="${PGDATA}/postgres.log"
 
 mkdir -p "$PGDATA"
@@ -28,7 +30,7 @@ export PATH="/backend/.venv/bin:$PATH"
 
 echo "Running migrations..."
 alembic upgrade head
-echo "Seeding demo data (no-op if already seeded)..."
+echo "Seeding reasons + roster (no-op if users already exist)..."
 python -m app.cli seed
 
 uvicorn app.main:app --host 127.0.0.1 --port 8000 &

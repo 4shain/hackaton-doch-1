@@ -28,7 +28,7 @@ COPY fly-entrypoint.sh /usr/local/bin/fly-entrypoint.sh
 RUN chmod +x /usr/local/bin/fly-entrypoint.sh
 
 ENV APP_ENV=development \
-    DEV_LOGIN_ENABLED=true \
+    ID_LOGIN_ENABLED=true \
     DATABASE_URL=postgresql+psycopg://doch1@127.0.0.1:5432/doch1 \
     TIMEZONE=Asia/Jerusalem \
     DAILY_JOB_HOUR=8 \

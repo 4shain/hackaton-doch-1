@@ -207,9 +207,12 @@ class CheckinResponse(Base):
     location_text: Mapped[str | None] = mapped_column(String(300))
     responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Set when a commander filled the answer for the recipient; NULL = the recipient answered themself.
+    responded_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
     request: Mapped[CheckinRequest] = relationship(back_populates="responses")
-    recipient: Mapped[User] = relationship()
+    recipient: Mapped[User] = relationship(foreign_keys=[recipient_id])
+    responded_by: Mapped[User | None] = relationship(foreign_keys=[responded_by_id])
 
     __table_args__ = (UniqueConstraint("request_id", "recipient_id", name="uq_checkin_request_recipient"),)
 

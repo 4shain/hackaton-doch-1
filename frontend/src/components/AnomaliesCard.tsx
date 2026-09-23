@@ -82,7 +82,8 @@ export function AnomaliesCard({ onOpenHistory }: { onOpenHistory: (soldier: Sold
                         {a.soldier.rank} {a.soldier.full_name}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        <bdi>{a.soldier.personal_number}</bdi> · {a.soldier.role_title}
+                        <bdi>{a.soldier.personal_number}</bdi>
+                        {a.soldier.role_title && ` · ${a.soldier.role_title}`}
                       </Typography>
                     </Box>
                     <Button size="small" variant="outlined" startIcon={<HistoryIcon />} onClick={() => onOpenHistory(a.soldier)} sx={{ flexShrink: 0 }}>

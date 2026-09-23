@@ -9,6 +9,7 @@ from app.services.daily_job import run_daily_job
 from app.services.scope import set_unit_parent
 from app.timeutil import local_today
 from tests.conftest import (
+    As,
     BATTALION_CMDR,
     COMPANY_CMDR,
     HR_AND_CMDR,
@@ -58,13 +59,53 @@ def test_client_role_claims_are_ignored(login):
     assert err(s.get("/api/hr/roster")) == "NOT_HR"
 
 
-def test_dev_login_disabled_outside_development(client, monkeypatch):
+def test_id_login(client, login, monkeypatch):
     from app.config import get_settings
 
-    monkeypatch.setattr(get_settings(), "app_env", "production")
-    r = client.post("/api/auth/dev-login", json={"personal_number": SOLDIER})
-    assert r.status_code == 403 and err(r) == "DEV_LOGIN_DISABLED"
+    assert login(f" {SOLDIER[:3]}-{SOLDIER[3:]} ").me["personal_number"] == SOLDIER  # separators ignored
+    r = client.post("/api/auth/login", json={"id_number": "123"})
+    assert r.status_code == 404 and err(r) == "USER_NOT_FOUND"
+    # The login screen never lists users.
+    assert client.get("/api/auth/demo-users").status_code in (404, 405)
+
+    s = login(SOLDIER)
+    monkeypatch.setattr(get_settings(), "id_login_enabled", False)
+    r = client.post("/api/auth/login", json={"id_number": SOLDIER})
+    assert r.status_code == 403 and err(r) == "ID_LOGIN_DISABLED"
+    assert s.get("/api/auth/me").status_code == 401  # existing sessions are refused too
     assert client.get("/api/auth/sso/login").status_code == 501
+
+
+def test_roster_import_builds_the_command_tree(db, tmp_path, client):
+    from app.seed import import_roster, reset, seed_reasons
+
+    csv_path = tmp_path / "roster.csv"
+    csv_path.write_text(
+        "full_name,id_number,team,role,role_title,hr\n"
+        "מפקד הקורס,12345678,,course_commander,מק״ס,0\n"
+        "מפקדת אחת,000000018,1,team_commander,מפקדת צוות 1,0\n"
+        "מפקד שתיים,000000026,2,team_commander,מפקד צוות 2,0\n"
+        "חייל א,000000034,1,soldier,,1\n"
+        "חייל ב,000000042,2,soldier,,0\n",
+        encoding="utf-8",
+    )
+    reset(db)
+    seed_reasons(db)
+    assert import_roster(db, csv_path) == 5
+    db.commit()
+
+    by_id = {u.personal_number: u for u in db.scalars(select(User))}
+    top, t1, t2, a, b = (by_id[x] for x in ("012345678", "000000018", "000000026", "000000034", "000000042"))
+    assert top.commander_id is None and t1.commander_id == top.id and t2.commander_id == top.id
+    assert a.commander_id == t1.id and b.commander_id == t2.id
+    assert db.get(Unit, a.unit_id).name == "צוות 1" and db.get(Unit, a.unit_id).parent_id == top.unit_id
+
+    # Login without the leading zero; the HR user sees the whole course, not just their own team.
+    hr = As(client, "12345678").me
+    assert hr["capabilities"] == {"soldier": True, "commander": True, "hr": False}
+    hr = As(client, "34")
+    assert hr.me["capabilities"]["hr"] and hr.me["hr_unit"]["name"] == "קורס"
+    assert {r["soldier"]["full_name"] for r in hr.get("/api/hr/roster").json()["rows"]} == {u.full_name for u in by_id.values()}
 
 
 # ------------------------------------------------------------------ soldier reporting
@@ -280,10 +321,18 @@ def test_manual_send_to_hr_endpoint_is_removed(login):
 
 # ------------------------------------------------------------------ HR
 
-def test_hr_scope_is_assigned_unit_only(db, login, reasons):
+def test_hr_scope_is_assigned_unit_and_below(db, login, reasons):
     hr = login(HR_ONLY)
     pns = {r["soldier"]["personal_number"] for r in hr.get("/api/hr/roster").json()["rows"]}
     assert SOLDIER in pns and PLAIN_HR_OFFICE not in pns and BATTALION_CMDR not in pns
+    # A unit under the HR unit is in scope.
+    company = db.get(Unit, db.scalar(select(User.unit_id).where(User.personal_number == SOLDIER)))
+    platoon = Unit(name="מחלקה 1", parent_id=company.id)
+    db.add(platoon)
+    db.flush()
+    db.scalar(select(User).where(User.personal_number == SOLDIER)).unit_id = platoon.id
+    db.commit()
+    assert SOLDIER in {r["soldier"]["personal_number"] for r in login(HR_ONLY).get("/api/hr/roster").json()["rows"]}
     r = hr.post("/api/hr/reports", {"soldier_id": user_id(db, PLAIN_HR_OFFICE), "report_date": TODAY().isoformat(), "reason_id": reasons["at_base"]["id"]})
     assert r.status_code == 403 and err(r) == "NOT_IN_HR_UNIT"
 
@@ -326,7 +375,7 @@ def test_csv_export_scoped_and_excel_friendly(login):
     assert r.status_code == 200
     assert r.content.startswith("﻿".encode())
     text = r.content.decode("utf-8-sig")
-    assert text.splitlines()[0].startswith("תאריך,מספר אישי,שם מלא")
+    assert text.splitlines()[0].startswith("תאריך,ת״ז,שם מלא")
     assert SOLDIER in text and PLAIN_HR_OFFICE not in text
     assert "לא דווח" in text  # missing reports are exported as missing, not absent
     assert login(TEAM1_CMDR).get("/api/hr/export.csv", params={"date_from": d0, "date_to": d0}).status_code == 403
@@ -390,6 +439,28 @@ def test_checkin_round_trip_and_isolation(db, login):
     assert err(login(SOLDIER_TEAM2).post(f"/api/checkins/{a['id']}/respond", {"location_text": "x"})) == "NOT_A_RECIPIENT"
     cmdr.post(f"/api/checkins/{a['id']}/close")
     assert err(s.post(f"/api/checkins/{a['id']}/respond", {"location_text": "x"})) == "CHECKIN_CLOSED"
+
+
+def test_commander_answers_checkin_for_a_subordinate(db, login):
+    ron = login(BATTALION_CMDR)
+    req = ron.post("/api/checkins", {}).json()
+    omer = login(TEAM1_CMDR)
+    sid = user_id(db, SOLDIER)
+
+    assert err(omer.post(f"/api/checkins/{req['id']}/respond-for/{sid}", {"location_text": " "})) == "LOCATION_REQUIRED"
+    assert omer.post(f"/api/checkins/{req['id']}/respond-for/{sid}", {"location_text": "בבית, דיברתי איתו"}).status_code == 200
+    row = next(r for r in ron.get(f"/api/checkins/{req['id']}").json()["responses"] if r["recipient"]["id"] == sid)
+    assert row["location_text"] == "בבית, דיברתי איתו" and row["responded_by"]["full_name"] == "עומר לוי"
+    assert db.scalar(select(func.count()).where(Notification.user_id == ron.me["id"], Notification.kind == "checkin_response")) == 1
+    # Other teams' soldiers and plain soldiers are refused.
+    assert err(omer.post(f"/api/checkins/{req['id']}/respond-for/{user_id(db, SOLDIER_TEAM2)}", {"location_text": "x"})) == "NOT_YOUR_SOLDIER"
+    assert err(login(SOLDIER_PENDING).post(f"/api/checkins/{req['id']}/respond-for/{sid}", {"location_text": "x"})) == "NOT_A_COMMANDER"
+    # The soldier's own answer replaces it.
+    login(SOLDIER).post(f"/api/checkins/{req['id']}/respond", {"location_text": "בבסיס"})
+    row = next(r for r in ron.get(f"/api/checkins/{req['id']}").json()["responses"] if r["recipient"]["id"] == sid)
+    assert row["location_text"] == "בבסיס" and row["responded_by"] is None
+    ron.post(f"/api/checkins/{req['id']}/close")
+    assert err(omer.post(f"/api/checkins/{req['id']}/respond-for/{sid}", {"location_text": "x"})) == "CHECKIN_CLOSED"
 
 
 def test_plain_soldier_cannot_issue_checkin(login):

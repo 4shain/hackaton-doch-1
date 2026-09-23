@@ -38,6 +38,15 @@ def respond(request_id: int, body: RespondIn, p: Principal = Depends(get_princip
     return {"request_id": request_id, "location_text": resp.location_text, "responded_at": resp.responded_at, "updated_at": resp.updated_at}
 
 
+@router.post("/{request_id}/respond-for/{soldier_id}")
+def respond_for(
+    request_id: int, soldier_id: int, body: RespondIn, p: Principal = Depends(require_commander), db: Session = Depends(get_db)
+) -> dict:
+    """Commander fills in the ירוק בעיניים answer for a subordinate."""
+    resp = svc.respond_for(db, p, request_id, soldier_id, body.location_text)
+    return {"request_id": request_id, "soldier_id": soldier_id, "location_text": resp.location_text, "responded_at": resp.responded_at}
+
+
 @router.get("/issued")
 def issued(p: Principal = Depends(require_commander), db: Session = Depends(get_db)) -> dict:
     return {

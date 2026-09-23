@@ -6,7 +6,7 @@ interface AuthState {
   me: Me | null
   meta: Meta | null
   loading: boolean
-  loginDemo: (personalNumber: string) => Promise<void>
+  login: (idNumber: string) => Promise<void>
   logout: () => Promise<void>
   refreshMeta: () => Promise<void>
 }
@@ -40,8 +40,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     boot()
   }, [])
 
-  const loginDemo = useCallback(async (pn: string) => {
-    const { token, me: m } = await api.devLogin(pn)
+  const login = useCallback(async (idNumber: string) => {
+    const { token, me: m } = await api.login(idNumber)
     tokenStore.set(token)
     setMeta(await api.meta())
     setMe(m)
@@ -57,7 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setMe(null)
   }, [])
 
-  const value = useMemo(() => ({ me, meta, loading, loginDemo, logout, refreshMeta }), [me, meta, loading, loginDemo, logout, refreshMeta])
+  const value = useMemo(() => ({ me, meta, loading, login, logout, refreshMeta }), [me, meta, loading, login, logout, refreshMeta])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 

@@ -20,17 +20,8 @@ export interface Me {
   hr_unit: { id: number; name: string } | null
 }
 
-export interface DemoUser {
-  personal_number: string
-  full_name: string
-  rank: string | null
-  role_title: string | null
-  unit_name: string
-  capabilities: Capabilities
-}
-
 export interface AuthConfig {
-  dev_login_enabled: boolean
+  id_login_enabled: boolean
   sso_configured: boolean
   environment: string
 }
@@ -166,6 +157,8 @@ export interface CheckinResponseRow {
   location_text: string | null
   responded_at: string | null
   updated_at: string | null
+  /** Set when a commander filled the answer in for the recipient. */
+  responded_by: { id: number; full_name: string } | null
 }
 
 export interface CheckinDetail extends CheckinSummary {

@@ -108,7 +108,8 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <Box sx={{ px: 2, py: 1 }}>
                     <Typography sx={{ fontWeight: 700 }}>{me.full_name}</Typography>
                     <Typography variant="body2" color="text.secondary">
-                      מ.א <bdi>{me.personal_number}</bdi> · {me.role_title}
+                      ת״ז <bdi>{me.personal_number}</bdi>
+                      {me.role_title && ` · ${me.role_title}`}
                     </Typography>
                   </Box>
                   <Divider />

@@ -176,7 +176,7 @@ export default function HrPage() {
             <TextField
               size="small"
               label="חיפוש חייל"
-              placeholder="שם או מספר אישי"
+              placeholder="שם או ת״ז"
               value={q}
               onChange={(e) => setQ(e.target.value)}
               sx={{ width: { xs: '100%', md: 220 } }}
@@ -215,7 +215,7 @@ export default function HrPage() {
             <Card>
               <Empty
                 title={activeFilter === 'open' ? 'כל החיילים דיווחו והדיווחים אושרו 🎉' : 'אין חיילים להצגה'}
-                subtitle={query ? 'נסו חיפוש אחר' : activeFilter === 'open' ? 'לצפייה בכולם בחרו "הכל" או חפשו לפי מספר אישי' : undefined}
+                subtitle={query ? 'נסו חיפוש אחר' : activeFilter === 'open' ? 'לצפייה בכולם בחרו "הכל" או חפשו לפי ת״ז' : undefined}
               />
             </Card>
           ) : desktop ? (
@@ -242,7 +242,8 @@ export default function HrPage() {
                           {row.soldier.rank} {row.soldier.full_name}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
-                          <bdi>{row.soldier.personal_number}</bdi> · {row.soldier.role_title}
+                          <bdi>{row.soldier.personal_number}</bdi>
+                        {row.soldier.role_title && ` · ${row.soldier.role_title}`}
                         </Typography>
                       </TableCell>
                       <TableCell>
@@ -273,7 +274,8 @@ export default function HrPage() {
                         {row.soldier.rank} {row.soldier.full_name}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        <bdi>{row.soldier.personal_number}</bdi> · {row.soldier.role_title}
+                        <bdi>{row.soldier.personal_number}</bdi>
+                        {row.soldier.role_title && ` · ${row.soldier.role_title}`}
                       </Typography>
                     </Box>
                     {actions(row)}

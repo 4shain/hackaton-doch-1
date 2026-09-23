@@ -7,3 +7,6 @@ __pycache__/
 e2e/screens/
 *.tsbuildinfo
 .DS_Store
+
+# Real roster (names + ID numbers). Never commit: this repo is public.
+backend/data/

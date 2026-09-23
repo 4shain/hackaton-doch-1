@@ -19,7 +19,7 @@ services:
     build: ./backend
     environment:
       APP_ENV: development
-      DEV_LOGIN_ENABLED: "true"
+      ID_LOGIN_ENABLED: "true"
       DATABASE_URL: postgresql+psycopg://doch1:doch1@db:5432/doch1
       CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
     ports:

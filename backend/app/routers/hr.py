@@ -45,7 +45,7 @@ class HrSetIn(BaseModel):
 
 
 def _unit_soldiers(db: Session, p: Principal, q: str | None) -> list[User]:
-    stmt = select(User).options(joinedload(User.unit)).where(User.unit_id == p.hr_unit_id, User.is_active)
+    stmt = select(User).options(joinedload(User.unit)).where(User.unit_id.in_(p.hr_unit_ids), User.is_active)
     if q:
         like = f"%{q.strip()}%"
         stmt = stmt.where(or_(User.full_name.ilike(like), User.personal_number.ilike(like)))
@@ -143,7 +143,7 @@ def export_csv(
     w = csv.writer(buf)
     w.writerow(
         [
-            "תאריך", "מספר אישי", "שם מלא", "סטטוס סופי", "מקור הסטטוס", "מצב הדיווח",
+            "תאריך", "ת״ז", "שם מלא", "סטטוס סופי", "מקור הסטטוס", "מצב הדיווח",
             "סטטוס חייל", "הערות חייל", "סטטוס מפקד", "הערות מפקד", "סטטוס שלישות", "הערות שלישות",
         ]
     )
@@ -195,7 +195,7 @@ def _anomalies_out(db: Session, p: Principal) -> dict:
             select(SoldierAnomaly)
             .join(User, User.id == SoldierAnomaly.soldier_id)
             .options(joinedload(SoldierAnomaly.soldier))
-            .where(SoldierAnomaly.run_id == run.id, User.unit_id == p.hr_unit_id)
+            .where(SoldierAnomaly.run_id == run.id, User.unit_id.in_(p.hr_unit_ids))
             .order_by(SoldierAnomaly.severity.desc(), SoldierAnomaly.score.desc())
         ).all()
         items = [

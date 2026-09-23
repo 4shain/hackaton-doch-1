@@ -5,7 +5,7 @@ Clients never send role claims; capabilities are computed from the database on e
 
 Providers:
   * "sso"  - intended production path (OIDC). Not implemented: requires provider configuration.
-  * "dev"  - development-only demo login. Refused unless APP_ENV=development and DEV_LOGIN_ENABLED=true.
+  * "id"   - login by ת״ז (ID number) alone. Refused when ID_LOGIN_ENABLED=false.
 """
 
 import hashlib
@@ -61,7 +61,7 @@ def get_principal(token: str = Depends(get_token), db: Session = Depends(get_db)
     session = db.scalar(select(AuthSession).where(AuthSession.token_hash == _hash(token)))
     if session is None or session.expires_at < utcnow():
         raise AppError("UNAUTHENTICATED", 401)
-    if session.provider == "dev" and not get_settings().demo_login_active:
+    if session.provider == "id" and not get_settings().id_login_enabled:
         raise AppError("UNAUTHENTICATED", 401)
     user = db.get(User, session.user_id)
     if user is None or not user.is_active:

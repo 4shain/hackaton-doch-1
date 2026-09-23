@@ -1,23 +1,31 @@
-"""Demo seed data. All people, units and reports are fictional."""
+"""Initial data: attendance reasons + the real roster (units, people, command tree, HR).
 
-import random
-from datetime import timedelta
+The roster holds real ID numbers, so it is never committed (the repo is public): it lives at ROSTER_PATH
+(default data/roster.csv, gitignored) and is baked into the deploy image. CSV columns:
+
+    full_name,id_number,team,role,role_title,hr
+
+  role   soldier | team_commander | course_commander (exactly one course commander, one commander per team)
+  team   team number (empty for the course commander)
+  hr     1 = HR (שלישות) for the whole course
+
+Resulting tree: course commander -> team commanders -> their soldiers. Units: קורס -> צוות N.
+"""
+
+import csv
+import logging
+import re
+from pathlib import Path
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.models import (
-    AttendanceReason,
-    AttendanceReport,
-    HrAssignment,
-    ReportAuditEvent,
-    ReportState,
-    Unit,
-    User,
-)
-from app.timeutil import local_today, utcnow
+from app.config import get_settings
+from app.models import AttendanceReason, HrAssignment, Unit, User
 
-# Demo values only - not an official or exhaustive list of IDF attendance statuses.
+log = logging.getLogger("doch1.seed")
+
+# Not an official or exhaustive list of IDF attendance statuses.
 REASONS = [
     # code, label, description, is_present, requires_notes, icon
     ("at_base", "נוכח בבסיס", "נוכחות מלאה ביחידה", True, False, "apartment"),
@@ -29,6 +37,12 @@ REASONS = [
     ("medical", "הפנייה רפואית", "מרפאה / בית חולים", False, True, "local_hospital"),
     ("other", "אחר", "יש לפרט בהערות", False, True, "edit_note"),
 ]
+
+
+def normalize_id(raw: str) -> str:
+    """ת״ז as stored: digits only, left-padded to 9 (people often drop the leading zero)."""
+    digits = re.sub(r"\D", "", raw or "")
+    return digits.zfill(9) if digits else ""
 
 
 def reset(db: Session) -> None:
@@ -43,152 +57,79 @@ def reset(db: Session) -> None:
     db.commit()
 
 
-def seed(db: Session, force: bool = False) -> bool:
-    if db.query(User).count() and not force:
-        return False
-    if force:
-        reset(db)
-
+def seed_reasons(db: Session) -> dict[str, AttendanceReason]:
     reasons = {}
     for i, (code, label, desc, present, notes, icon) in enumerate(REASONS):
         r = AttendanceReason(code=code, label=label, description=desc, is_present=present, requires_notes=notes, icon=icon, sort_order=i)
         db.add(r)
         reasons[code] = r
-
-    battalion = Unit(name="גדוד 71")
-    db.add(battalion)
     db.flush()
-    company = Unit(name="פלוגה א׳", parent_id=battalion.id)
-    hr_office = Unit(name="שלישות גדודית", parent_id=battalion.id)
-    db.add_all([company, hr_office])
+    return reasons
+
+
+def import_roster(db: Session, path: Path) -> int:
+    with path.open(encoding="utf-8-sig", newline="") as f:
+        rows = list(csv.DictReader(f))
+    by_role: dict[str, list[dict]] = {}
+    for r in rows:
+        r["id_number"] = normalize_id(r["id_number"])
+        by_role.setdefault(r["role"].strip(), []).append(r)
+    ids = [r["id_number"] for r in rows]
+    if len(set(ids)) != len(ids) or "" in ids:
+        raise ValueError("roster: ID numbers must be present and unique")
+    if len(by_role.get("course_commander", [])) != 1:
+        raise ValueError("roster: expected exactly one course_commander")
+
+    course = Unit(name="קורס")
+    db.add(course)
     db.flush()
 
-    def user(pn: str, name: str, rank: str, title: str, unit: Unit, cmdr: User | None) -> User:
-        u = User(personal_number=pn, full_name=name, rank=rank, role_title=title, unit_id=unit.id, commander_id=cmdr.id if cmdr else None)
+    def user(r: dict, unit: Unit, commander: User | None) -> User:
+        u = User(
+            personal_number=r["id_number"], full_name=r["full_name"].strip(), role_title=(r.get("role_title") or "").strip() or None,
+            unit_id=unit.id, commander_id=commander.id if commander else None,
+        )
         db.add(u)
         db.flush()
+        if r.get("hr", "").strip() == "1":
+            db.add(HrAssignment(user_id=u.id, unit_id=course.id))
         return u
 
-    ron = user("1000001", "רון ברק", "סא״ל", "מפקד גדוד", battalion, None)
-    yael = user("1000002", "יעל מזרחי", "סרן", "מפקדת פלוגה", company, ron)
-    omer = user("1000003", "עומר לוי", "סמ״ר", "מפקד צוות 1", company, yael)
-    noa = user("1000004", "נועה אלקיים", "סמ״ר", "מפקדת צוות 2", company, yael)
-    dana = user("1000005", "דנה אלון", "רס״ן", "ראש שלישות", hr_office, ron)
-    michal = user("1000006", "מיכל פרץ", "סמל", "פקידת שלישות", hr_office, dana)
-    user("1000007", "אור חדד", "רב״ט", "פקיד כוח אדם", hr_office, dana)
+    top = user(by_role["course_commander"][0], course, None)
+    course.commander_id = top.id
 
-    team1 = [
-        user("8941203", "איתי כהן", "רב״ט", "לוחם", company, omer),
-        user("8921345", "יונתן שפירא", "סמל", "קשר מ״פ", company, omer),
-        user("9348122", "דניאל אברג׳יל", "רב״ט", "נהג מבצעי", company, omer),
-        user("8112345", "גיא מזרחי", "סמ״ר", "חימוש", company, omer),
-        user("7654129", "יובל אלון", "סמל", "קשר וסיוע", company, omer),
-    ]
-    team2 = [
-        user("9104821", "שירה גולן", "רב״ט", "חובשת פלוגתית", company, noa),
-        user("9023311", "עידו רוזן", "טוראי", "לוחם", company, noa),
-        user("9187654", "מאיה ביטון", "רב״ט", "לוחמת", company, noa),
-        user("9055512", "אלון דהן", "סמל", "מטול", company, noa),
-    ]
+    teams: dict[int, tuple[Unit, User]] = {}
+    for r in sorted(by_role.get("team_commander", []), key=lambda r: int(r["team"])):
+        n = int(r["team"])
+        if n in teams:
+            raise ValueError(f"roster: team {n} has more than one commander")
+        unit = Unit(name=f"צוות {n}", parent_id=course.id)
+        db.add(unit)
+        db.flush()
+        cmdr = user(r, unit, top)
+        unit.commander_id = cmdr.id
+        teams[n] = (unit, cmdr)
 
-    battalion.commander_id = ron.id
-    company.commander_id = yael.id
-    hr_office.commander_id = dana.id
-    db.add_all([HrAssignment(user_id=dana.id, unit_id=company.id), HrAssignment(user_id=michal.id, unit_id=company.id)])
+    for r in by_role.get("soldier", []):
+        n = int(r["team"])
+        if n not in teams:
+            raise ValueError(f"roster: team {n} has no commander")
+        user(r, *teams[n])
     db.flush()
+    return len(rows)
 
-    _seed_reports(db, reasons, company_soldiers=[yael, omer, noa, *team1, *team2], team1=team1, team2=team2, michal=michal)
+
+def seed(db: Session, force: bool = False) -> bool:
+    if db.query(User).count() and not force:
+        return False
+    if force:
+        reset(db)
+    if not db.query(AttendanceReason).count():
+        seed_reasons(db)
+    path = Path(get_settings().roster_path)
+    if path.exists():
+        log.info("imported %d people from the roster", import_roster(db, path))
+    else:
+        log.warning("roster file %s not found: no users created", path)
     db.commit()
     return True
-
-
-def _seed_reports(db: Session, reasons: dict, company_soldiers: list[User], team1: list[User], team2: list[User], michal: User) -> None:
-    rng = random.Random(71)
-    today = local_today()
-    now = utcnow()
-    weights = [("at_base", 70), ("on_the_way", 5), ("vacation", 10), ("sick", 5), ("after_duty", 6), ("outside_duty", 4)]
-    codes = [c for c, w in weights for _ in range(w)]
-
-    def notes_for(code: str) -> str | None:
-        return {"outside_duty": "קורס מפקדי כיתות", "medical": "בדיקה במרפאה", "other": "סידורים אישיים"}.get(code)
-
-    def add(u: User, d, code: str, state: ReportState, by_commander: bool = False) -> AttendanceReport:
-        r = AttendanceReport(soldier_id=u.id, report_date=d, state=state, created_by_id=u.id)
-        reason = reasons[code]
-        if by_commander:
-            r.commander_reason_id = reason.id
-            r.commander_notes = notes_for(code)
-            r.commander_reported_by_id = u.commander_id
-            r.commander_reported_at = now
-            r.created_by_id = u.commander_id
-        else:
-            r.soldier_reason_id = reason.id
-            r.soldier_notes = notes_for(code)
-            r.soldier_reported_at = now
-        if state in (ReportState.approved, ReportState.sent_to_hr, ReportState.hr_final):
-            r.approved_by_id = u.commander_id
-            r.approved_at = now
-        if state in (ReportState.sent_to_hr, ReportState.hr_final):
-            r.sent_to_hr_by_id = u.commander_id
-            r.sent_to_hr_at = now
-        if state != ReportState.scheduled:
-            r.submitted_to_commander_at = now
-        db.add(r)
-        db.flush()
-        db.add(
-            ReportAuditEvent(
-                report_id=r.id, soldier_id=u.id, report_date=d, actor_id=r.created_by_id,
-                actor_role="commander" if by_commander else "soldier", action="seeded", changes={},
-            )
-        )
-        return r
-
-    # History: last 20 days, approved and handed to HR; a couple of gaps and one HR correction.
-    # Days 15-20 draw from their own RNG so the last 14 days stay identical to the original seed (tests rely on it).
-    history: dict[tuple[int, int], AttendanceReport] = {}
-    older_rng = random.Random(72)
-    for back in range(20, 0, -1):
-        d = today - timedelta(days=back)
-        day_rng = older_rng if back > 14 else rng
-        for u in company_soldiers:
-            if day_rng.random() < 0.04 or (u is team2[1] and back == 15):
-                continue  # historical missing report / HR-corrected day below
-            history[(u.id, back)] = add(u, d, day_rng.choice(codes), ReportState.sent_to_hr)
-
-    # Planted anomalies for the nightly Jev scan demo (kept 4+ days back, clear of the tests' days).
-    def plant(u: User, back: int, code: str, notes: str | None = None, cmdr_code: str | None = None, cmdr_notes: str | None = None) -> None:
-        r = history.get((u.id, back)) or add(u, today - timedelta(days=back), code, ReportState.sent_to_hr)
-        history[(u.id, back)] = r
-        r.soldier_reason_id, r.soldier_notes = reasons[code].id, notes
-        if cmdr_code:
-            r.commander_reason_id, r.commander_notes = reasons[cmdr_code].id, cmdr_notes
-            r.commander_reported_by_id, r.commander_reported_at = u.commander_id, now
-
-    daniel, alon = team1[2], team2[3]
-    # Sick every Thursday / Sunday (around the weekend), and "at base" with a note saying he was home.
-    for back in range(4, 21):
-        if (today - timedelta(days=back)).weekday() in (3, 6):
-            plant(daniel, back, "sick")
-    plant(daniel, 5 if (today - timedelta(days=5)).weekday() not in (3, 6) else 6, "at_base", "הייתי בבית כל היום, הרכב התקלקל")
-    # Soldier says at base, commander says he never showed up.
-    plant(alon, 7, "at_base", None, "other", "לא הגיע לבסיס ולא ענה לטלפון")
-    plant(alon, 8, "at_base", None, "other", "לא הגיע, לא ידוע איפה הוא")
-    plant(alon, 12, "outside_duty", "קורס נהיגה", "vacation", "אין שום קורס, יצא הביתה")
-    corrected = add(team2[1], today - timedelta(days=15), "at_base", ReportState.sent_to_hr)
-    corrected.hr_reason_id = reasons["sick"].id
-    corrected.hr_notes = "תוקן לפי אישור רפואי"
-    corrected.hr_reported_by_id = michal.id
-    corrected.hr_reported_at = now
-    corrected.state = ReportState.hr_final
-
-    # Today: a realistic mix for the demo.
-    add(team1[3], today, "at_base", ReportState.pending_approval)
-    add(team1[4], today, "vacation", ReportState.pending_approval)
-    add(team2[0], today, "at_base", ReportState.sent_to_hr)
-    add(team2[2], today, "medical", ReportState.pending_approval).soldier_notes = "תור לאורתופד 10:30"
-    add(team2[3], today, "at_base", ReportState.sent_to_hr, by_commander=True)
-    # Missing today: team1[0..2], team2[1] (and the commanders).
-
-    # Future: scheduled reports for the demo soldier.
-    add(team1[0], today + timedelta(days=2), "vacation", ReportState.scheduled)
-    add(team1[0], today + timedelta(days=3), "vacation", ReportState.scheduled)

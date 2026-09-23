@@ -9,8 +9,10 @@ class Settings(BaseSettings):
 
     app_env: str = "development"
     database_url: str = "postgresql+psycopg://doch1:doch1@localhost:5433/doch1"
-    # Demo login is only honoured when app_env == "development" AND this flag is true.
-    dev_login_enabled: bool = True
+    # Login by ת״ז alone (no password). Existing sessions from it are rejected once this is turned off.
+    id_login_enabled: bool = True
+    # Real roster CSV (gitignored, see app/seed.py). Relative to the backend directory.
+    roster_path: str = "data/roster.csv"
     session_ttl_hours: int = 12
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     timezone: str = "Asia/Jerusalem"
@@ -38,10 +40,6 @@ class Settings(BaseSettings):
     @property
     def tz(self) -> ZoneInfo:
         return ZoneInfo(self.timezone)
-
-    @property
-    def demo_login_active(self) -> bool:
-        return self.app_env == "development" and self.dev_login_enabled
 
     @property
     def anomaly_scan_configured(self) -> bool:

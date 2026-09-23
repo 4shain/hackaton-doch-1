@@ -99,7 +99,7 @@ docker compose up -d --build
 open http://localhost:5173
 ```
 
-The backend container runs migrations, seeds fictional demo data if the DB is empty, and starts the API plus the in-process 08:00 scheduler.
+The backend container runs migrations, loads the attendance reasons and the roster (see **Users** below) if the DB has no users, and starts the API plus the in-process 08:00 scheduler.
 
 - App: http://localhost:5173
 - API docs: http://localhost:8000/docs
@@ -108,7 +108,7 @@ The backend container runs migrations, seeds fictional demo data if the DB is em
 Useful commands:
 
 ```bash
-docker compose exec backend python -m app.cli seed --reset             # reset demo data
+docker compose exec backend python -m app.cli seed --reset             # wipe everything and reload the roster
 docker compose exec backend python -m app.cli run-daily-job --date 2026-09-23   # run 08:00 processing for a date
 ```
 
@@ -123,26 +123,26 @@ uv run uvicorn app.main:app --reload --port 8000
 cd frontend && npm install && npm run dev      # proxies /api to :8000
 ```
 
-## Demo users (development only, all fictional)
+## Users (real roster, not in git)
 
-| Personal no. | Name | Capabilities |
-|---|---|---|
-| 8941203 | רב״ט איתי כהן | soldier (team 1) — has scheduled future reports |
-| 8112345 | סמ״ר גיא מזרחי | soldier (team 1) — pending report today |
-| 1000003 | סמ״ר עומר לוי | commander of team 1 |
-| 1000004 | סמ״ר נועה אלקיים | commander of team 2 |
-| 1000002 | סרן יעל מזרחי | commander of the team commanders |
-| 1000001 | סא״ל רון ברק | battalion commander (root; recursive check-ins reach everyone) |
-| 1000006 | סמל מיכל פרץ | HR of פלוגה א׳ |
-| 1000005 | רס״ן דנה אלון | HR of פלוגה א׳ **and** commander of the HR office |
-| 1000007 | רב״ט אור חדד | soldier in the HR office (outside HR scope) |
+There is no fictional data. Users come from a roster CSV at `ROSTER_PATH` (default `backend/data/roster.csv`). It holds real names and ID numbers, so `backend/data/` is **gitignored** (this repo is public). It is copied into the Fly image at deploy time. Columns:
+
+```
+full_name,id_number,team,role,role_title,hr
+```
+
+- `role` is `course_commander` (exactly one: the מק״ס), `team_commander` (one per team) or `soldier`.
+- `hr=1` makes the person HR (שלישות) for the whole course.
+
+The import builds this tree. **Units:** `קורס` → `צוות N`. **Command:** מק״ס → team commanders → their soldiers. The מק״ס is the commander of all team commanders, so a ירוק בעיניים request from them reaches everyone. HR scope is the assigned unit **and every unit under it**.
+
+**Login** is by ת״ז only (`POST /api/auth/login`; leading zeros and separators are optional). There is no password, so anyone who knows an ID number can log in as that person. Turn it off with `ID_LOGIN_ENABLED=false`, which also rejects existing sessions. The fictional demo data now exists only for the backend tests (`backend/tests/demo_seed.py`).
 
 ## Walkthrough
 
-1. **Soldier** – log in as איתי כהן. The home page opens directly with "האם אתה בבסיס?" for today's report; choose **כן, אני בבסיס** to send it for commander approval. **לוח שנה** shows every report by month (color + icon per day, legend, month navigation); future days can be toggled individually and one status can be submitted for all selected dates from the bottom action. Selecting today or a past day clears the future selection. Days locked by a commander or HR are skipped and not overwritten. Scheduled reports enter the approval queue at 08:00 on their report date. Notifications open as a floating list from the bell in the header.
-2. **Commander** – log in as עומר לוי → **החיילים שלי**: metrics, distribution, filter chips. **אשר דיווח**, **תקן ואשר** (writes the commander layer), **דווח בשם החייל** for missing soldiers. Commander approval automatically makes the report available to HR; there is no manual handoff or second HR approval. A soldier's history opens as the same month calendar (HR gets it too, with edit/audit actions for the selected day).
-3. **HR** – log in as מיכל פרץ → **ניהול שלישות**: filter by date/soldier, see handed-off / pending / missing, edit current or historical reports (HR layer), view the audit log, export CSV.
-4. **ירוק בעיניים** – as עומר לוי send a request (all recursive subordinates are snapshotted as recipients and notified). Log in as איתי כהן: the app immediately goes to a separate, blocking page (`/checkin`) that must be answered with a free-text location before anything else is usable. Users already in the app are taken over within ~15 seconds (polling). For the chain: send as רון ברק, log in as יעל מזרחי, answer, then see her company's status and re-send it to them. Back as עומר, open the request to see responded/pending counts, locations and times; close it when done.
+1. **Soldier**: the home page asks "האם אתה בבסיס?" for today's report. **לוח שנה** shows every report by month; future days (up to a week ahead) can be selected and reported together.
+2. **Team commander / מק״ס** → **החיילים שלי**: the latest ירוק בעיניים request with every subordinate's answer. A "טרם הזינו" filter shows only the ones still missing, and **מילוי** fills in the location for a soldier (marked "מולא ע״י …"). Below that are the soldier cards: approve, correct and approve, or report on a soldier's behalf.
+3. **HR** → **ניהול שלישות**: soldiers who haven't reported or aren't approved yet. Search by name or ת״ז. HR can edit current and historical reports and see the audit log. **אפשרויות מתקדמות** holds the CSV export and the anomaly scan.
 
 ## Design decisions and MVP assumptions
 
@@ -206,11 +206,11 @@ To run it by hand: `python -m app.cli run-daily-job --date YYYY-MM-DD`. It is no
 ## Authentication
 
 - The only real boundary is `app/auth.py`. Opaque bearer tokens map to server-side `auth_sessions` rows, and identity and permissions are always loaded from the database.
-- **Demo login** (`POST /api/auth/dev-login`) works only when `APP_ENV=development` **and** `DEV_LOGIN_ENABLED=true`. Existing demo sessions are also rejected once that is no longer true.
+- **ID login** (`POST /api/auth/login`, ת״ז only, no password) works while `ID_LOGIN_ENABLED=true`. Existing sessions are rejected once it is turned off.
 - **SSO is not implemented.** `GET /api/auth/sso/login` returns `501 SSO_NOT_CONFIGURED`. To connect a real OIDC provider:
   1. set `SSO_ISSUER_URL`, `SSO_CLIENT_ID` and `SSO_CLIENT_SECRET`;
   2. implement the authorization-code redirect and callback;
-  3. verify the ID token and map a trusted claim (e.g. personal number) to `users.personal_number`;
+  3. verify the ID token and map a trusted claim (e.g. ת״ז) to `users.personal_number`;
   4. call `create_session(db, user, "sso")`;
   5. set `APP_ENV=production`.
 
@@ -243,11 +243,12 @@ Every night at **02:00 Asia/Jerusalem** (`ANOMALY_JOB_HOUR`), the in-process sch
 - **HR page.** The "חריגות בדיווחים" card lists the unit's flagged soldiers from the latest run, with severity, signals, facts and a link to the history calendar. "סריקה עכשיו" rescans the HR user's unit on demand.
 - **CLI.** `uv run python -m app.cli run-anomaly-scan [--date YYYY-MM-DD] [--unit ID]`.
 - **Config.** `TYPESAFE_API_KEY` (the scan is off without it), `JEV_MODEL` (pinned `jev-1.13.0`) and `ANOMALY_CONCURRENCY` (16).
-- **Seed.** The seed plants two anomalies: דניאל אברג׳יל (sick every Thursday/Sunday, plus "at base" with a note saying he was home) and אלון דהן (reports "at base" while his commander says he never showed up).
+- **Privacy.** Jev never receives names or ID numbers, only the role title and the day lines. The window never starts before the first report in the system, so days before go-live don't count as unreported.
+- **Test data.** The fictional test seed plants two anomalies: דניאל אברג׳יל (sick every Thursday/Sunday, plus "at base" with a note saying he was home) and אלון דהן (reports "at base" while his commander says he never showed up).
 
 ### Cost at 100,000 soldiers
 
-Jev bills **input tokens only**: $0.042 per 1M tokens, and output is free. The measured average on the seeded data is **~1,170 input tokens per soldier** (20 Hebrew day lines, notes, facts and the 4 questions).
+Jev bills **input tokens only**: $0.042 per 1M tokens, and output is free. The measured average on the fictional test data is **~1,170 input tokens per soldier** (20 Hebrew day lines, notes, facts and the 4 questions).
 
 | | per night | per month (30 nights) |
 |---|---|---|

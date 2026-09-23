@@ -7,7 +7,6 @@ import type {
   AuthConfig,
   CheckinDetail,
   CheckinSummary,
-  DemoUser,
   IncomingCheckin,
   Me,
   ReceivedCheckin,
@@ -65,8 +64,7 @@ const d = <T,>(p: Promise<{ data: T }>) => p.then((r) => r.data)
 
 export const api = {
   authConfig: () => d<AuthConfig>(http.get('/api/auth/config')),
-  demoUsers: () => d<DemoUser[]>(http.get('/api/auth/demo-users')),
-  devLogin: (personal_number: string) => d<{ token: string; me: Me }>(http.post('/api/auth/dev-login', { personal_number })),
+  login: (id_number: string) => d<{ token: string; me: Me }>(http.post('/api/auth/login', { id_number })),
   logout: () => d(http.post('/api/auth/logout')),
   me: () => d<Me>(http.get('/api/auth/me')),
   meta: () => d<Meta>(http.get('/api/meta')),
@@ -100,6 +98,8 @@ export const api = {
 
   checkinsIncoming: () => d<IncomingCheckin[]>(http.get('/api/checkins/incoming')),
   checkinRespond: (id: number, location_text: string) => d(http.post(`/api/checkins/${id}/respond`, { location_text })),
+  checkinRespondFor: (id: number, soldierId: number, location_text: string) =>
+    d(http.post(`/api/checkins/${id}/respond-for/${soldierId}`, { location_text })),
   checkinsIssued: () => d<{ subordinate_count: number; requests: CheckinSummary[] }>(http.get('/api/checkins/issued')),
   checkinCreate: (message?: string, parentRequestId?: number) =>
     d<CheckinDetail>(http.post('/api/checkins', { message: message || null, parent_request_id: parentRequestId ?? null })),

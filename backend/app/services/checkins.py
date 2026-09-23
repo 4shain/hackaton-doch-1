@@ -116,16 +116,21 @@ def list_received_as_commander(db: Session, p: Principal) -> list[dict]:
     return [received_subtree(db, p, i) for i in ids]
 
 
-def respond(db: Session, p: Principal, request_id: int, location_text: str) -> CheckinResponse:
+def _clean_location(location_text: str) -> str:
     location_text = (location_text or "").strip()
     if not location_text:
         raise AppError("LOCATION_REQUIRED", 422)
     if len(location_text) > LOCATION_MAX:
         raise AppError("LOCATION_TOO_LONG", 422)
+    return location_text
+
+
+def _write_response(db: Session, request_id: int, recipient_id: int, location_text: str, by: User | None) -> CheckinResponse:
+    """Record an answer. by = the commander filling it in for the recipient, None = the recipient themself."""
     resp = db.scalar(
         select(CheckinResponse)
-        .options(joinedload(CheckinResponse.request))
-        .where(CheckinResponse.request_id == request_id, CheckinResponse.recipient_id == p.id)
+        .options(joinedload(CheckinResponse.request), joinedload(CheckinResponse.recipient))
+        .where(CheckinResponse.request_id == request_id, CheckinResponse.recipient_id == recipient_id)
         .with_for_update(of=CheckinResponse)
     )
     if resp is None:
@@ -135,20 +140,27 @@ def respond(db: Session, p: Principal, request_id: int, location_text: str) -> C
     now = utcnow()
     first = resp.responded_at is None
     resp.location_text = location_text
+    resp.responded_by_id = by.id if by else None
     if first:
         resp.responded_at = now
     resp.updated_at = now
-    if first:
-        notify(
-            db,
-            resp.request.commander_id,
-            "checkin_response",
-            f"ירוק בעיניים: {p.user.full_name} השיב/ה",
-            location_text,
-            link="/soldiers",
-        )
+    if first and resp.request.commander_id != (by.id if by else None):
+        title = f"ירוק בעיניים: {resp.recipient.full_name} השיב/ה" if by is None else f"ירוק בעיניים: {by.full_name} מילא/ה עבור {resp.recipient.full_name}"
+        notify(db, resp.request.commander_id, "checkin_response", title, location_text, link="/soldiers")
     db.commit()
     return resp
+
+
+def respond(db: Session, p: Principal, request_id: int, location_text: str) -> CheckinResponse:
+    return _write_response(db, request_id, p.id, _clean_location(location_text), None)
+
+
+def respond_for(db: Session, p: Principal, request_id: int, soldier_id: int, location_text: str) -> CheckinResponse:
+    """A commander fills in the answer for one of their (recursive) subordinates."""
+    location_text = _clean_location(location_text)
+    if soldier_id not in recursive_subordinate_ids(db, p.id):
+        raise forbidden("NOT_YOUR_SOLDIER")
+    return _write_response(db, request_id, soldier_id, location_text, p.user)
 
 
 def close_request(db: Session, p: Principal, request_id: int) -> CheckinRequest:
@@ -213,6 +225,7 @@ def _response_rows(responses: list[CheckinResponse]) -> list[dict]:
             "location_text": r.location_text,
             "responded_at": r.responded_at,
             "updated_at": r.updated_at,
+            "responded_by": None if r.responded_by is None else {"id": r.responded_by.id, "full_name": r.responded_by.full_name},
         }
         for r in sorted(responses, key=lambda x: (x.responded_at is not None, x.recipient.full_name))
     ]

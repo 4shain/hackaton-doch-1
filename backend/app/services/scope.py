@@ -1,6 +1,6 @@
 """Server-side authorization scopes. Every read/write goes through these helpers."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
@@ -14,6 +14,8 @@ class Principal:
     user: User
     direct_report_ids: set[int]
     hr_unit_id: int | None
+    # The HR unit and every unit under it.
+    hr_unit_ids: set[int] = field(default_factory=set)
 
     @property
     def id(self) -> int:
@@ -31,7 +33,26 @@ class Principal:
 def load_principal(db: Session, user: User) -> Principal:
     direct = set(db.scalars(select(User.id).where(User.commander_id == user.id, User.is_active)).all())
     hr_unit_id = db.scalar(select(HrAssignment.unit_id).where(HrAssignment.user_id == user.id))
-    return Principal(user=user, direct_report_ids=direct, hr_unit_id=hr_unit_id)
+    hr_units = unit_subtree_ids(db, hr_unit_id) if hr_unit_id is not None else set()
+    return Principal(user=user, direct_report_ids=direct, hr_unit_id=hr_unit_id, hr_unit_ids=hr_units)
+
+
+def unit_subtree_ids(db: Session, unit_id: int) -> set[int]:
+    """unit_id and all its descendant units (the unit hierarchy)."""
+    rows = db.execute(
+        text(
+            """
+            WITH RECURSIVE sub(id) AS (
+                SELECT CAST(:uid AS integer)
+                UNION
+                SELECT u.id FROM units u JOIN sub s ON u.parent_id = s.id
+            )
+            SELECT id FROM sub
+            """
+        ),
+        {"uid": unit_id},
+    ).scalars()
+    return set(rows)
 
 
 def recursive_subordinate_ids(db: Session, commander_id: int) -> list[int]:
@@ -53,8 +74,8 @@ def recursive_subordinate_ids(db: Session, commander_id: int) -> list[int]:
 
 
 def hr_unit_member_ids(db: Session, unit_id: int) -> set[int]:
-    # MVP: HR scope is the assigned unit only, not child units.
-    return set(db.scalars(select(User.id).where(User.unit_id == unit_id, User.is_active)).all())
+    # HR scope is the assigned unit and all units under it.
+    return set(db.scalars(select(User.id).where(User.unit_id.in_(unit_subtree_ids(db, unit_id)), User.is_active)).all())
 
 
 def can_commander_manage(p: Principal, soldier_id: int) -> bool:
@@ -64,7 +85,7 @@ def can_commander_manage(p: Principal, soldier_id: int) -> bool:
 def can_hr_manage(db: Session, p: Principal, soldier_id: int) -> bool:
     if p.hr_unit_id is None:
         return False
-    return db.scalar(select(User.unit_id).where(User.id == soldier_id)) == p.hr_unit_id
+    return db.scalar(select(User.unit_id).where(User.id == soldier_id)) in p.hr_unit_ids
 
 
 def require_commander_of(p: Principal, soldier_id: int) -> None:

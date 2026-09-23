@@ -108,7 +108,8 @@ export default function SoldiersPage() {
                           {row.soldier.rank} {row.soldier.full_name}
                         </Typography>
                         <Typography variant="body2" color="text.secondary">
-                          מ.א <bdi>{row.soldier.personal_number}</bdi> · {row.soldier.role_title}
+                          ת״ז <bdi>{row.soldier.personal_number}</bdi>
+                          {row.soldier.role_title && ` · ${row.soldier.role_title}`}
                         </Typography>
                       </Box>
                       <Tooltip title="היסטוריית דיווחים">
